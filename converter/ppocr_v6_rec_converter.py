@@ -123,7 +123,19 @@ class PPOCRv6RecConverter(BaseOCRV20):
             if ptname.endswith("qkv.weight")
             else ptname[: -len("qkv.bias")]
         )
-        if ptname.endswith("qkv.weight"):
+        # Check if the PyTorch model uses fused qkv (e.g., SVTR block) or
+        # split conv1/conv2/conv3 (legacy).
+        if ptname in state_dict:
+            # Fused qkv parameter — copy directly with transpose for weight
+            if ptname.endswith("qkv.weight"):
+                self.net.state_dict()[ptname].copy_(
+                    torch.Tensor(value.T.cpu().numpy())
+                )
+            else:
+                self.net.state_dict()[ptname].copy_(
+                    torch.Tensor(value.cpu().numpy())
+                )
+        elif ptname.endswith("qkv.weight"):
             q, k, v = torch.chunk(torch.Tensor(value.T.cpu().numpy()), 3, dim=0)
             for name, tensor in zip(
                 ("conv1.weight", "conv2.weight", "conv3.weight"), (q, k, v)
@@ -243,9 +255,7 @@ if __name__ == "__main__":
 
     # save
     save_basename = os.path.basename(os.path.abspath(args.src_model_path))
-    save_stem = "ptocr_v6_rec_{}".format(save_basename.split(".")[0])
-    save_dir = os.path.dirname(os.path.abspath(args.src_model_path))
-    save_path = os.path.join(save_dir, "{}_inference.pth".format(save_stem))
-    converter.save_inference_pytorch_weights(save_path)
+    save_name = "ptocr_v6_rec_{}.pth".format(save_basename.split(".")[0])
+    converter.save_inference_pytorch_weights(save_name)
 
     print("done.")

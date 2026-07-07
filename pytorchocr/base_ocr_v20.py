@@ -70,11 +70,11 @@ class BaseOCRV20:
         return out_channels
 
     def load_state_dict(self, weights):
-        self.net.load_state_dict(weights)
+        self.net.load_state_dict(weights, strict=False)
         print('weights is loaded.')
 
     def load_pytorch_weights(self, weights_path):
-        self.net.load_state_dict(torch.load(weights_path))
+        self.net.load_state_dict(torch.load(weights_path), strict=False)
         print('model is loaded: {}'.format(weights_path))
 
 
