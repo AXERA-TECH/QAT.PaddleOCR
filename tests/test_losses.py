@@ -52,6 +52,40 @@ class LossSmokeTest(unittest.TestCase):
         self.assertTrue(torch.isfinite(losses["loss"]))
         self.assertTrue(torch.isfinite(logits.grad).all())
 
+    def test_db_loss_accepts_expose_intermediates_dict_maps(self):
+        """KD wrapper dicts carry maps as a tuple; DBLoss must consume them."""
+        maps = tuple(
+            torch.sigmoid(torch.randn(2, 1, 16, 16, requires_grad=True))
+            for _ in range(3)
+        )
+        for tensor in maps:
+            tensor.retain_grad()
+        predictions = {"maps": maps}
+        labels = {
+            "threshold_map": torch.rand(2, 16, 16),
+            "threshold_mask": torch.ones(2, 16, 16),
+            "shrink_map": torch.randint(0, 2, (2, 16, 16)).float(),
+            "shrink_mask": torch.ones(2, 16, 16),
+        }
+        losses = DBLoss()(predictions, labels)
+        losses["loss"].backward()
+        self.assertTrue(torch.isfinite(losses["loss"]))
+        for tensor in maps:
+            self.assertTrue(torch.isfinite(tensor.grad).all())
+
+    def test_db_loss_accepts_bare_maps_tuple(self):
+        maps = tuple(
+            torch.sigmoid(torch.randn(2, 1, 16, 16)) for _ in range(3)
+        )
+        labels = {
+            "threshold_map": torch.rand(2, 16, 16),
+            "threshold_mask": torch.ones(2, 16, 16),
+            "shrink_map": torch.randint(0, 2, (2, 16, 16)).float(),
+            "shrink_mask": torch.ones(2, 16, 16),
+        }
+        losses = DBLoss()(maps, labels)
+        self.assertTrue(torch.isfinite(losses["loss"]))
+
     def test_ctc_loss_backward(self):
         logits = torch.randn(2, 8, 6, requires_grad=True)
         targets = torch.tensor([[1, 2, 3], [2, 4, 0]])

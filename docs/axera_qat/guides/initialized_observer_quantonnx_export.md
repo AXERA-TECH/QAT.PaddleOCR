@@ -48,10 +48,10 @@ tools/export_ocr_onnx.py initialized
 $PYTHON tools/export_ocr_onnx.py initialized \
   --task rec \
   --model-config configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml \
-  --weights ptocr_v6_rec_PP-OCRv6_small_rec_pretrained.pth \
+  --weights weights/ptocr_v6_rec_PP-OCRv6_small_rec_pretrained.pth \
   --qat-config configs/qat/ppocrv6_small_rec_u8s8.json \
   --image-shape 3 48 320 \
-  --output /home/heqi/project/PaddleOCR/tmp/route2_qat_exports/initialized_observers/ppocrv6_small_rec_init_observer_qat.onnx
+  --output exports/quantonnx/initialized_observers/ppocrv6_small_rec_init_observer_qat.onnx
 ```
 
 默认报告路径为 `<output>.json`。
@@ -61,7 +61,7 @@ $PYTHON tools/export_ocr_onnx.py initialized \
 输出目录：
 
 ```text
-/home/heqi/project/PaddleOCR/tmp/route2_qat_exports/initialized_observers/
+exports/quantonnx/initialized_observers/
 ```
 
 | 模型 | 输入 | QuantizeLinear | 静态参数 observer | scale 唯一值 | zero-point 唯一值 |
@@ -72,13 +72,5 @@ $PYTHON tools/export_ocr_onnx.py initialized \
 
 三个模型均通过 ONNX full checker 和项目 QDQ 结构门禁。识别模型保留配置中的局部 S16 激活域，
 其 zero-point dtype 为 `int16`，但数值仍为 `0`；全局激活域为 U8。
-
-SHA256：
-
-```text
-b84ab91e1bcbd82670e6a4dc9a8089573a390a645e2215ba18545de920418fda  ppocrv5_mobile_det_init_observer_qat.onnx
-55c798a37b0c3685b96d9b6d470f2ef38f34ecd9d9addd9ae36713199e29dc9f  ppocrv6_small_det_init_observer_qat.onnx
-402361065e39d5c7943c8b61b830c96abd74dd6ffa3c74b0c74d58f07012886b  ppocrv6_small_rec_init_observer_qat.onnx
-```
 
 这些模型用于量化图结构和工具链规则分析，不代表校准后或 QAT 后的可用精度，不能用于精度验收。

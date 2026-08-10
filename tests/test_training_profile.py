@@ -232,6 +232,125 @@ class TrainingProfileTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unknown training settings"):
                 load_training_profile(profile_path)
 
+    def test_profile_accepts_kd_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile_path = Path(directory) / "kd.yml"
+            profile_path.write_text(
+                "name: kd\n"
+                "task: rec\n"
+                "training:\n"
+                "  kd: true\n"
+                "  kd_mode: logits\n"
+                "  kd_weight: 0.5\n"
+                "  kd_temperature: 8.0\n"
+                "  kd_neck_weight: 0.25\n"
+                "  kd_backbone_weight: 0.0\n"
+                "  teacher_weights: weights/ptocr_v6_small_rec_full.pth\n",
+                encoding="utf-8",
+            )
+            profile = load_training_profile(profile_path)
+            self.assertTrue(profile.training["kd"])
+            self.assertEqual(profile.training["kd_mode"], "logits")
+            self.assertEqual(profile.training["kd_weight"], 0.5)
+            self.assertEqual(profile.training["kd_temperature"], 8.0)
+            self.assertEqual(profile.training["kd_neck_weight"], 0.25)
+            self.assertEqual(profile.training["kd_backbone_weight"], 0.0)
+            self.assertEqual(
+                profile.training["teacher_weights"],
+                "weights/ptocr_v6_small_rec_full.pth",
+            )
+
+    def test_profile_rejects_non_boolean_kd(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile_path = Path(directory) / "invalid.yml"
+            profile_path.write_text(
+                "training:\n  kd: 1\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "kd must be boolean"):
+                load_training_profile(profile_path)
+
+    def test_profile_rejects_invalid_kd_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile_path = Path(directory) / "invalid.yml"
+            profile_path.write_text(
+                "training:\n  kd_mode: bogus\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "kd_mode"):
+                load_training_profile(profile_path)
+
+    def test_profile_rejects_negative_kd_weight(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile_path = Path(directory) / "invalid.yml"
+            profile_path.write_text(
+                "training:\n  kd_weight: -0.5\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "kd_weight"):
+                load_training_profile(profile_path)
+
+    def test_profile_rejects_non_positive_kd_temperature(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile_path = Path(directory) / "invalid.yml"
+            profile_path.write_text(
+                "training:\n  kd_temperature: 0\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "kd_temperature"):
+                load_training_profile(profile_path)
+
+    def test_resume_contract_rejects_kd_change(self):
+        with self.assertRaisesRegex(ValueError, "kd"):
+            validate_resume_contract(
+                {
+                    "task": "rec",
+                    "model_config": "configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml",
+                    "qat": False,
+                    "reparameterized": True,
+                    "kd": False,
+                    "rec_graph": "deploy",
+                },
+                {
+                    "task": "rec",
+                    "model_config": "configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml",
+                    "qat": False,
+                    "reparameterized": True,
+                    "kd": True,
+                    "kd_mode": "logits",
+                    "kd_weight": 1.0,
+                    "kd_temperature": 4.0,
+                    "kd_neck_weight": 0.0,
+                    "kd_backbone_weight": 0.0,
+                    "rec_graph": "deploy",
+                },
+            )
+
+    def test_resume_contract_defaults_legacy_kd_to_false(self):
+        """Old checkpoints without a kd key must resume under non-KD runs."""
+        validate_resume_contract(
+            {
+                "task": "rec",
+                "model_config": "configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml",
+                "qat": False,
+                "reparameterized": True,
+                "rec_graph": "deploy",
+            },
+            {
+                "task": "rec",
+                "model_config": "configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml",
+                "qat": False,
+                "reparameterized": True,
+                "kd": False,
+                "kd_mode": None,
+                "kd_weight": None,
+                "kd_temperature": None,
+                "kd_neck_weight": None,
+                "kd_backbone_weight": None,
+                "rec_graph": "deploy",
+            },
+        )
+
     def test_profile_rejects_unknown_augmentation_preset(self):
         with tempfile.TemporaryDirectory() as directory:
             profile_path = Path(directory) / "invalid.yml"

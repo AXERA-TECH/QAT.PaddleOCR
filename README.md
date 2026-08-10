@@ -195,7 +195,7 @@ env HOME=/tmp/ppocr_qat_home PYTHONPATH="$PWD" \
 env HOME=/tmp/ppocr_qat_home PYTHONPATH="$PWD" \
   "$CONVERT_PYTHON" converter/ppocr_v6_det_converter.py \
   --yaml_path configs/det/PP-OCRv6/PP-OCRv6_small_det.yml \
-  --src_model_path weights/PP-OCRv6_small_det_pretrained.pdparams \
+  --src_model_path references/PaddleOCR/models/PP-OCRv6_small_det_pretrained/PP-OCRv6_small_det_pretrained.pdparams \
   --output weights/ptocr_v6_small_det_full.pth
 ```
 
@@ -763,8 +763,13 @@ QuantONNX 结构错误。
 - 当前只验证单卡训练，尚未接入 DDP；recognition 动态宽度尚未支持，部署宽度固定。
 - QAT baseline 关闭随机增强；Paddle 的其他模型专属增强需要逐模型验收后才能启用。
 - ONNX checker 和 ORT 通过不等于 Axera 芯片验收；仍需 Pulsar2 编译和板端结果。
-- PP-OCRv5 mobile rec 的 Exp2 已在 epoch 2 精度门禁停止。该 checkpoint 和 QuantONNX 仅用于结构与
-  根因分析，不得恢复为正式训练；当前结论、Exp3 对照和保留产物见
+- PP-OCRv5 mobile rec 的 Exp2（reparam=true）、Exp3（reparam=false）、Exp4（reparam=false + KD）均已在
+  epoch 2 精度门禁停止：acc 0.0019 / 0.3899 / 0.3717，仍低于浮点基线 0.5936。checkpoint 仅用于
+  结构与根因分析，不得恢复为正式训练；主因是未修复的 U16 observer `eps=2**-12` 截断，KD 无法弥补。
+  结论与保留产物见
   [`v5 mobile rec QAT 训练记录`](docs/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md)。
+- 知识蒸馏（KD）支持已实现：浮点与 QAT 训练均可通过 `--kd` 启用冻结浮点 teacher 的
+  CTC logits/DB maps 蒸馏（可选中间层），详见
+  [`KD 训练指南`](docs/axera_qat/guides/kd_training.md)。
 - 新模型或图/qspec 变更后，必须先完成随机输入 smoke，并将 smoke QuantONNX 交付人工结构检查；确认
   前不得启动正式多 epoch QAT。

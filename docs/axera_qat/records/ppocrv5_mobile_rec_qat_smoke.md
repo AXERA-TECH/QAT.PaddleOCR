@@ -3,8 +3,8 @@
 ## 1. 范围
 
 本记录只验证 PP-OCRv5 mobile rec 的真实预训练权重转换、Paddle/PyTorch CTC 浮点对齐，以及
-Axera PT2E QAT 到 QuantONNX 的单步 smoke。按当前检查节点停止，不启动真实数据训练，不生成 QAT
-checkpoint，也不声明任务精度。
+Axera PT2E QAT 到 QuantONNX 的单步 smoke。记录范围内的 smoke 检查不启动真实数据训练；后续
+真实数据训练（Exp1-Exp4）记录在 icdar2015_ppocrv5_mobile_rec_qat_training.md。
 
 ## 2. 权重和字典
 
@@ -19,9 +19,6 @@ classes:    18385（18383 字典字符 + space + CTC blank）
 SHA256：
 
 ```text
-04745475b97a1faf029c7442a4c4421b156249b9395814e509bf4a9804e37750  PP-OCRv5_mobile_rec_pretrained.pdparams
-7667656321365b7c438564e3ebe4abe130a4e9c57740c40364f81df7a127dd80  ptocr_v5_mobile_rec.pth
-d1979e9f794c464c0d2e0b70a7fe14dd978e9dc644c0e71f14158cdf8342af1b  pytorchocr/utils/dict/ppocrv5_dict.txt
 ```
 
 原 Paddle state dict 有 968 个参数。本路线仅支持 CTC，明确排除 84 个 `head.gtc_head` /
@@ -61,8 +58,8 @@ env HOME=/tmp/ppocr_route2_home FLAGS_use_mkldnn=0 \
   /home/heqi/miniforge3/envs/ocr_moderation/bin/python \
   tools/compare_rec_parity.py \
   --model-config configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml \
-  --paddle-weights PP-OCRv5_mobile_rec_pretrained.pdparams \
-  --torch-weights ptocr_v5_mobile_rec.pth \
+  --paddle-weights weights/PP-OCRv5_mobile_rec_pretrained.pdparams \
+  --torch-weights weights/ptocr_v5_mobile_rec.pth \
   --image-shape 3 48 320
 ```
 
@@ -91,8 +88,8 @@ env PYTHONPATH="$PWD" \
   tools/qat_smoke.py \
   --task rec \
   --model-config configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml \
-  --weights ptocr_v5_mobile_rec.pth \
-  --qat-config configs/qat/ppocrv5_mobile_rec_u8s8.json \
+  --weights weights/ptocr_v5_mobile_rec.pth \
+  --qat-config configs/qat/ppocrv5_mobile_rec_u8s8.json \  # 该文件已删除，仅保留为历史命令；当前 U16/S16 合同见 configs/qat/ppocrv5_mobile_rec_u16s16_attn_s16.json
   --output /tmp/ppocrv5_mobile_rec_pretrained_qat_smoke.onnx \
   --image-shape 3 48 320
 ```
@@ -122,8 +119,8 @@ ORT optimized argmax agreement: 1.0
 QuantONNX 已归档到：
 
 ```text
-output/ppocrv5_mobile_rec_qat_smoke/pretrained_qdq.onnx
-SHA256: df9e43d4e168121c8ea8ea92970a511b3a63e41b1b018dda5007f527c7785ac9
+（历史归档路径 output/ppocrv5_mobile_rec_qat_smoke/pretrained_qdq.onnx，已迁移，按记录追溯）
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 上述结果仅作为修改 Attention qspec 前的问题基线，不作为后续训练或 Pulsar2 转换输入。其 3 个
@@ -161,7 +158,7 @@ model.head.ctc_encoder.encoder.svtr_block.1.mixer
 
 ```text
 /home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv5_mobile_rec_attn_s8_native_silu_smoke_20260804.onnx
-SHA256: 8070c4071e1b332e196de15c6dc144a46127d86708f25ed4ff228f87ea4d17f5
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 结构结果：
@@ -238,7 +235,8 @@ projection、4 个 MLP Linear 和 1 个 CTC Linear。PyTorch 已正确使用 `nn
 ## 8. 当前结论
 
 PP-OCRv5 mobile rec 的 CTC 浮点转换与真实权重 QAT/QuantONNX smoke 已通过，结构已由用户确认。
-原生 SiLU 50 epoch 正式 QAT 已启动；训练合同和指标单独记录在
+原生 SiLU 50 epoch 正式 QAT 已完成但精度恢复未通过；后续 U16/S16 合同 Exp1-Exp4 也已执行（含 KD 的
+Exp4），训练合同和指标单独记录在
 `docs/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md`。Pulsar2/AXModel 板端结果仍待完成。
 
 ## 9. 原生 SiLU 浮点精度重测
@@ -315,14 +313,14 @@ MatMul 2:         S16/S16 -> U16
 
 ```text
 artifacts/accuracy_baseline/p4_structure/ppocrv5_mobile_rec_global_u16s16_qat_discovery_20260806.json
-config SHA256: a9c31a796e44e6f4c061f281244337703233cb8b657d4bde3ba73d133c9b1f39
+（config 哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 初始化 observer smoke 产物：
 
 ```text
 /tmp/ppocrv5_mobile_rec_global_u16s16_attn_s16_qat_smoke_20260806.onnx
-SHA256: fc0265b51f3e65c49df171016bcdceb10ac2c7dd0c9c3121c43bad3c43e72942
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 input:  [1, 3, 48, 320]
 output: [1, 40, 18385]
 QuantizeLinear / DequantizeLinear: 243 / 429
@@ -338,5 +336,5 @@ recognized lowering: Conv 38 / Linear 9 / SiLU 7
 导出器在一个 qparam 不同的 DQ/Q 边界间插入 Identity，位置为
 `AveragePool -> Q -> DQ -> Identity -> Q -> DQ -> Conv`。该边位于 Attention 外，不是 Attention
 dtype 往返；Attention 内没有 direct/requant DQ->Q。对应 Pulsar2 配置静态检查发现 2 个 Attention、
-7 个 SiLU 和 1 个必要 Pool/Conv qparam 边界，检查通过。该 smoke 仍需用户完成人工结构检查，未启动
-正式多 epoch QAT。
+7 个 SiLU 和 1 个必要 Pool/Conv qparam 边界，检查通过。该 smoke 结构已确认；后续 U16/S16 合同 Exp1-Exp4 已在真实数据上执行（epoch-2 门禁停止），
+当前不再需要人工结构检查作为启动正式训练的前置。

@@ -4,15 +4,18 @@
 
 ## 1. 交付状态
 
-当前已保留 PP-OCRv6 small det/rec 和 PP-OCRv5 mobile det 的 QAT QuantONNX，均完成 ONNX checker、
-QDQ 结构检查和 ORT optimize-off 评估记录。PP-OCRv5 mobile rec 当前只有初始化训练图和 Exp2 epoch-2
-debug 结构图，训练因精度门禁失败而暂停，不能作为正式精度交付。
+当前已保留 PP-OCRv6 small det/rec 和 PP-OCRv5 mobile det 的 QAT QuantONNX，均完成 ONNX checker
+和 ORT optimize-off 评估记录。注意：v6 rec/det 与 v5 det 的 `best_qdq.onnx` 生成于 2026-07-30，
+早于 SiLU 边界 QDQ 门禁；用当前 `validate_qdq_graph` 复核时 v6 rec 图因 4 个内部 QDQ 的 SiLU
+被标记 blocked（v6 det 与 v5 det 通过），编译前必须重新执行 QDQ 审计。
+PP-OCRv5 mobile rec 的 Exp1-Exp4 均因 epoch-2 精度门禁停止（acc 0.0019 / 0.3899 / 0.3717），
+只有初始化训练图和 Exp2/Exp3/Exp4 epoch-2 debug 结构图，不能作为正式精度交付。
 
 本机没有 `pulsar2` 可执行程序、Axera 编译环境或板端运行环境，因此本文只定义可复现的编译和验收
 契约，不把 ONNX/ORT 通过写成 AXModel 验收通过。当前没有已编译的 `.axmodel`。
 
-Pulsar2 必须为 3.4 或更高版本；`tmp/QAT.axera/pulsar2` 只包含上游说明、示例 `config.json` 和
-4-bit 转换脚本，不包含编译器。
+Pulsar2 必须为 3.4 或更高版本；本机 `tmp/QAT.axera/pulsar2` 目录已不存在（旧的上游说明与
+示例 `config.json` 已随重构清理），配置从第 3 节的模板或既有 `artifacts/pulsar2/` 配置起步。
 
 ## 2. 正式输入模型
 
@@ -76,14 +79,16 @@ Pad/QDQ 规则曾导致 Axera 转换精度异常，编译前必须重新执行 Q
 runs/exp2_ppocrv5_mobile_rec_u16s16_full_qat/
 ```
 
-当前只允许交付以下两个文件做结构检查：
+当前只允许交付以下文件做结构检查：
 
 ```text
 training graph:
 exports/training_reparameterize_static_scalar_fakequant_fix_review/quantonnx/ppocrv5_mobile_rec_training_init_qat.onnx
 
-deployment/debug graph:
+deployment/debug graphs（exp2/exp3/exp4 各 epoch-2 debug 图）:
 exports/quantonnx/exp2_ppocrv5_mobile_rec_u16s16_epoch2_debug_qat.onnx
+exports/quantonnx/exp3_ppocrv5_mobile_rec_u16s16_epoch2_debug_no_reparameterize_qat.onnx
+/tmp/exp4_kd_debug_qat.onnx（KD 图，见记录 §29.3）
 ```
 
 training graph 保留 `images + gtc_targets` 双输入和 CTC/CTC neck/GTC 三个训练输出；deployment/debug
@@ -98,7 +103,7 @@ graph 只保留 `images -> logits`。Exp2 在 epoch 2 因 accuracy 从浮点基�
 pulsar2 version
 ```
 
-为 det 和 rec 分别创建编译目录及配置。可从 `tmp/QAT.axera/pulsar2/config.json` 起步，但必须确认：
+为 det 和 rec 分别创建编译目录及配置。可从已有 `artifacts/pulsar2/` 配置或下方模板起步，但必须确认：
 
 - `model_type` 为 `QuantONNX`；
 - target hardware 和 `npu_mode` 与实际芯片一致；
@@ -208,8 +213,8 @@ qparams 或配置报告。
 
 ## 7. 当前交接入口
 
-完整项目流程见仓库根目录 `README.md`；项目约束见 `AGENTS.md`。PP-OCRv5 rec Exp2/Exp3 的训练
-门禁、保留 checkpoint、QuantONNX 和参数域审计结果见：
+完整项目流程见仓库根目录 `README.md`；项目约束见 `AGENTS.md`。PP-OCRv5 rec Exp2/Exp3/Exp4 的
+训练门禁、保留 checkpoint、QuantONNX 和参数域审计结果见：
 
 ```text
 docs/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md

@@ -27,11 +27,7 @@
 
 ### 1.2 合同指纹
 
-```text
-common: 32e19842179816307d0ddc221ea94ebdfb1c3ad080c5d4a0be3099ba1c6306f3
-det:    04272f9aa0fe292522281dc37618faf705da9db808f41de79f7d395cbdbcd17a
-rec:    6157cd4f82b3aecd58f28d5fe9e9c348adce790aadf4319191e5f7c0e6a6e34f
-```
+合同通过 `artifacts/accuracy_contract/*.json` 追溯（哈希已按 AGENTS.md 规则移除，不再记录）。
 
 产物：
 
@@ -116,7 +112,7 @@ P0 之前的 route2 训练、QAT 和 ONNX 指标仅保留在历史文档中，�
 
 新增 `tools/compare_float_frameworks.py`。该工具只使用 PaddleOCR 官方 Eval dataloader 生成 normalized
 input，三个模型依次接收同一 NumPy batch，并分别使用独立的 Paddle 官方 postprocess/metric 实例。
-正式结果复用 P1 的 GPU、batch size 和 worker 数。JSON 包含命令、环境、Git 状态和输入 SHA256。
+正式结果复用 P1 的 GPU、batch size 和 worker 数。JSON 包含命令、环境、Git 状态和输入标识（哈希按 AGENTS.md 规则不记录）。
 
 ### 5.1 PP-OCRv5 mobile det
 
@@ -366,7 +362,6 @@ ORT optimize-on 仍会显著改变输出，不能用 QAT 补偿该运行时图�
 ```text
 /home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv6_small_rec_reparameterized_qat_smoke_20260804.onnx
 artifacts/accuracy_baseline/p4_structure/ppocrv6_small_rec_reparameterized_qat_smoke_20260804.json
-ONNX SHA256: 54a3f0e7de3d9c94209556987bb2f8a57c369ab9202ca0da9db850b22de47055
 ```
 
 ### 6.8 zero-point Cast 批量折叠与 det/rec 重导出
@@ -395,9 +390,7 @@ ORT optimize-off 输出均 finite。optimize-on/off 差异继续只作诊断：r
 
 ```text
 rec: /home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv6_small_rec_reparameterized_qat_smoke_20260804_castfold.onnx
-     SHA256 0839f55fade49cf1a3a22007733648266df83aa91c86d1950c669cb52f3ec1d0
 det: /home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv6_small_det_reparameterized_qat_smoke_20260804_castfold.onnx
-     SHA256 f0f0c6268d05e05bfb04ec2aecb3b13bfb85ca8917d6c7dc1ba055fb4d1a0d30
 report: artifacts/accuracy_baseline/p4_structure/ppocrv6_castfold_exports_20260804.json
 ```
 
@@ -408,7 +401,7 @@ report: artifacts/accuracy_baseline/p4_structure/ppocrv6_castfold_exports_202608
 | P0 合同 | 通过 | 双跑 hash 和产物一致 |
 | P1 Paddle float | 通过 | det/rec 完整验证集双跑一致 |
 | P2 PyTorch float | 部分通过 | rec 按 argmax `>=0.9998` 通过；det 稀疏框行为差异继续跟踪 |
-| P3 训练评估语义 | 进行中 | 融合误差已记录并接受为 QAT 恢复风险；不采用 eager Conv-BN deploy 图 |
+| P3 训练评估语义 | 已完成（2026-08-07） | 重参数化 A/B、eager Conv-BN 结构检查、reparam PT2E smoke 均已执行并给出结论；融合误差已记录并接受为 QAT 恢复风险，不采用 eager Conv-BN deploy 图 |
 | P4 fake-quant-off | rec 已验证 | v5 rec 任务指标 delta 通过；严格 tensor 容差因 PT2E Conv-BN QAT 重写未通过，det 待验证 |
 
 ## 8. Pad 量化规则变更后的 det smoke
@@ -423,7 +416,7 @@ pytorchocr/quantization/ax_quantizer_utils.py
 
 该修改会改变 PT2E observer/fake-quant 图。历史 det QAT checkpoint 的非 observer 参数虽然仍可
 对齐，但 observer 状态数量和命名图已发生变化，严格恢复失败；因此旧
-`output/icdar2015_ppocrv6_small_det_qat/best.pt` 不再用于导出或继续训练。本轮 smoke 从真实
+`runs/icdar2015_ppocrv6_small_det_qat/best.pt` 不再用于导出或继续训练。本轮 smoke 从真实
 浮点预训练权重重新构建，不使用 `strict=False`。
 
 ### 8.2 Smoke 命令和产物
@@ -434,7 +427,7 @@ env PYTHONPATH="$PWD" \
   --task det \
   --det-graph inference \
   --model-config configs/det/PP-OCRv6/PP-OCRv6_small_det.yml \
-  --weights ptocr_v6_det_PP-OCRv6_small_det_pretrained.pth \
+  --weights weights/ptocr_v6_det_PP-OCRv6_small_det_pretrained.pth \
   --qat-config configs/qat/ppocrv6_small_det_u8s8.json \
   --output /home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv6_small_det_qat_smoke_after_utils_20260804.onnx \
   --image-shape 3 640 640 \
@@ -446,7 +439,6 @@ env PYTHONPATH="$PWD" \
 
 ```text
 /home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv6_small_det_qat_smoke_after_utils_20260804.onnx
-SHA256: d36480f3e0286c40d564f0de365960ae983584d821d1c515884d479e81e7097d
 artifacts/accuracy_baseline/p4_structure/ppocrv6_small_det_smoke_after_utils_20260804.json
 ```
 
@@ -525,14 +517,13 @@ pattern: DQ -> Pad -> Q
 ## 10. PP-OCRv5 mobile rec 候选 smoke
 
 由于 v6 det/rec 和 v5 mobile det 均受 `Pad` 工具链问题阻塞，先检查 PP-OCRv5 mobile rec。其
-当前真实预训练权重 smoke 不包含 `Pad`，因此登记为下一候选，但尚未获得用户结构确认，不启动
-正式数据集训练。
+当前真实预训练权重 smoke 不包含 `Pad`，因此登记为下一候选；后续该模型已在 U16/S16 合同下
+执行 Exp1-Exp4（含 KD），结果见 icdar2015_ppocrv5_mobile_rec_qat_training.md。
 
 ### 10.1 历史全局配置产物（已被替代）
 
 ```text
 /home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv5_mobile_rec_qat_smoke_latest_20260804.onnx
-SHA256: 1afcd09dd11ca6c976d9fc61cffeaf92b9549442b6055798fbe7203aef49dfbf
 ```
 
 使用当前模型、量化配置、vendor quantizer 和导出器，从
@@ -578,7 +569,6 @@ Attention 内部 2 个 requant 已通过 QAT qspec 修正，不通过导出图�
 
 ```text
 /home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv5_mobile_rec_attn_s8_native_silu_smoke_20260804.onnx
-SHA256: 8070c4071e1b332e196de15c6dc144a46127d86708f25ed4ff228f87ea4d17f5
 ```
 
 ```text
@@ -647,7 +637,6 @@ artifacts/accuracy_baseline/p4_structure/ppocrv5_mobile_rec_pt2e_fake_off_full_g
 
 ```text
 /home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv6_small_rec_qat_smoke_latest_20260804.onnx
-SHA256: 5f68aa44b43ac6916b803aee577408634a8b8bfa7e206dd7c20facd3d2929506
 ```
 
 该文件包含当前导出器的 constant zero-point Cast 折叠，以及 2 个非同 qparam 的

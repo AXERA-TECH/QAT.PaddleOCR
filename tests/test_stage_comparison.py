@@ -31,6 +31,14 @@ class StageComparisonTest(unittest.TestCase):
         tensor = torch.ones(1)
         self.assertEqual(outputs_as_tuple(tensor), (tensor,))
         self.assertEqual(outputs_as_tuple([tensor, tensor]), (tensor, tensor))
+        self.assertEqual(
+            outputs_as_tuple({"ctc": tensor, "ctc_neck": tensor})[0],
+            tensor,
+        )
+        maps = (tensor, tensor, tensor)
+        self.assertEqual(outputs_as_tuple({"maps": maps})[0], tensor)
+        base_dict = {"neck_out": tensor, "head_out": {"ctc": tensor}}
+        self.assertEqual(outputs_as_tuple(base_dict)[0], tensor)
 
     def test_output_set_comparison_reports_each_random_stage_output(self):
         reference = (

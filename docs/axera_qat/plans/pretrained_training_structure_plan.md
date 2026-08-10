@@ -1,7 +1,9 @@
 # PP-OCR Pretrained 训练结构复现计划
 
-状态：2026-08-06 已完成。四个模型的 pretrained 浮点训练结构均已通过各自适用的 S0-S4；
-后续 PT2E/QAT/QuantONNX 工作保持暂停。
+状态：2026-08-06 已完成。四个模型的 pretrained 浮点训练结构均已通过各自适用的 S0-S4。
+2026-08-06 后 v5 mobile rec 已恢复 PT2E/QAT 工作（U16/S16 Exp1-Exp4，含 KD 的 Exp4），
+其余三个模型仍保持暂停；最新实验见
+`docs/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md`。
 
 ## 1. 目标和边界
 
@@ -171,21 +173,21 @@ full pretrained train graph
 
 ### C0：冻结 pretrained 合同
 
-- [ ] 保存四个官方 Paddle YAML、Paddle 权重、现有 PyTorch 权重及 SHA256；
-- [ ] 导出 Paddle 和 PyTorch 参数 manifest：name、shape、dtype、trainable；
-- [ ] 保存 training/eval 输出 schema 和参数总量；
-- [ ] 固定每个模型的随机输入和一个真实 mini-batch；
-- [ ] 将现有 CTC-only/v5-det/v6 结果标记为 legacy deploy/QAT 诊断，不作为 full-training baseline。
+- [x] 保存四个官方 Paddle YAML、Paddle 权重、现有 PyTorch 权重（产物用路径追溯，不记录哈希）；
+- [x] 导出 Paddle 和 PyTorch 参数 manifest：name、shape、dtype、trainable；
+- [x] 保存 training/eval 输出 schema 和参数总量；
+- [x] 固定每个模型的随机输入和一个真实 mini-batch；
+- [x] 将现有 CTC-only/v5-det/v6 结果标记为 legacy deploy/QAT 诊断，不作为 full-training baseline。
 
 验证：同一 manifest 连续生成两次完全一致；历史产物不覆盖。
 
 ### C1：模型工厂角色拆分
 
-- [ ] 实现显式 graph role；
-- [ ] `pretrained_train` 不使用 RecCTCWrapper/DetInferenceWrapper；
-- [ ] `deploy` 只通过显式 wrapper/projection 选择部署输出；
-- [ ] graph role、完整配置 hash、权重 hash、reparameterization 写入 checkpoint metadata；
-- [ ] checkpoint 拒绝跨 role、跨结构或跨 qspec resume。
+- [x] 实现显式 graph role；
+- [x] `pretrained_train` 不使用 RecCTCWrapper/DetInferenceWrapper；
+- [x] `deploy` 只通过显式 wrapper/projection 选择部署输出；
+- [x] graph role、完整配置、reparameterization 写入 checkpoint metadata（哈希按 AGENTS.md 规则不记录）；
+- [x] checkpoint 拒绝跨 role、跨结构或跨 qspec resume。
 
 验证：四个模型分别构建三个角色，参数归属和允许删除列表可审计；旧 checkpoint 只能由 legacy 入口
 读取，不能误恢复到新图。
@@ -360,8 +362,8 @@ artifacts/pretrained_structure/<model>/loss_gradient.json
 artifacts/pretrained_structure/<model>/deploy_projection.json
 ```
 
-报告必须记录命令、Git 状态、环境、配置/权重 hash、输入/target hash、所有输出 shape、loss、gradient、
-误差、允许删除 key 和首个失败节点。
+报告必须记录命令、Git 状态、环境、配置/权重路径、所有输出 shape、loss、gradient、误差、允许删除
+key 和首个失败节点（哈希按 AGENTS.md 规则不记录）。
 
 ## 8. 旧产物处理
 
@@ -402,12 +404,9 @@ PT2E/QAT 训练阶段。现有数据、后处理和 metric 继续复用；Axera�
 - Paddle/PyTorch CTC、GTC、MultiLoss、gradient、单步 Adam delta 数值对比；
 - full model raw CTC 到 deploy wrapper raw CTC 的精确投影验证。
 
-尚未完成：
-
-- `qat_train` 的“量化 CTC 部署路径 + float NRTR 辅助监督”捕获；
-- PT2E、QuantONNX 和 Axera smoke。
-
-因此当前只完成到 M1/S4；尚未形成 PT2E/QAT 精度基线，也不允许据此启动多 epoch QAT。
+本节为 2026-08-06 的时点结论。其中“尚未完成”的 `qat_train` 量化 CTC + float NRTR 辅助监督捕获、
+PT2E/QuantONNX smoke 已由后续 v5 rec 工作补齐（`FullRecTrainingWrapper`、Exp1-Exp4，见
+`docs/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md`）；Axera 板端验证仍待完成。
 
 ### 11.2 转换结果
 
@@ -421,16 +420,16 @@ unexplained source entries:  0
 
 ```text
 weights/PP-OCRv5_mobile_rec_pretrained.pdparams
-SHA256 04745475b97a1faf029c7442a4c4421b156249b9395814e509bf4a9804e37750
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 
 weights/ptocr_v5_mobile_rec_full.pth
-SHA256 b229c8d7050064fb8ade27ec12fd6e008682dfdd0e4da6ddcb6a4b7e8b993c9c
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 
 configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml
-SHA256 127f8f613d16c7ba9986f427ee00508ef29469efd4a86496be9080d50415339e
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 
 configs/qat/training/ppocrv5_mobile_rec_full_pretrained_float_smoke.yml
-SHA256 1bb22618741143bde16f74e921c8ac36f86ff39c8be306170555910f24f64dda
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 full-training 前向输出已验证为：
@@ -494,10 +493,10 @@ epoch/global_step: 1/2
 
 ```text
 /tmp/ppocrv5_mobile_rec_full_pretrained_float_smoke_20260805/best.pt
-SHA256 11c88be841cad3f065aab61a9ff3009f23ebc784d5a6a931de7d43515f4d9b7a
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 
 /tmp/ppocrv5_mobile_rec_full_pretrained_float_smoke_20260805/last.pt
-SHA256 eaf350187f4abaa775b3ba373d4a309e8ab16b16c1ccc250011bf86ad796c107
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 该产物生成时尚未恢复 Paddle `ConvBNLayer` 的 BN no-decay 参数合同，已由 11.5 的新 smoke 取代。
@@ -540,10 +539,10 @@ best strict reload 后四项验证指标完全一致。当前产物：
 
 ```text
 /tmp/ppocrv5_mobile_rec_full_pretrained_float_smoke_optimizer_contract_20260805/best.pt
-SHA256 c46c388273e71d04a13ebbc125c707105af5916beb9a11a663fdbc64ff4172d7
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 
 /tmp/ppocrv5_mobile_rec_full_pretrained_float_smoke_optimizer_contract_20260805/last.pt
-SHA256 2c4d3792f10a9621f8f8b2428c7ec3afc9b2e22ba0ba084227ffb7372ae9bad9
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 ### 11.6 Paddle/PyTorch full-training parity
@@ -569,9 +568,9 @@ full_training_parity_cpu_final.json \
 ```text
 input shape:    [2, 3, 48, 320]
 seed:           20260805
-images SHA256:  b74fd7e85de6471556a9af38949c3ca6c2922fe5dbbe5d77c22a5c69d5a0af5e
-targets SHA256: 0243ac4708bdcebe4c9ad8cf1d5435a443418f0e3606ff3541f29a8251fbb3be
-report SHA256:  493d9cba444708703608324ae0574450a3c6a3a5fa839b679710feea62cff8d9
+images （哈希已按 AGENTS.md 规则移除，用路径追溯）
+targets （哈希已按 AGENTS.md 规则移除，用路径追溯）
+report （哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 关键结果：
@@ -617,10 +616,12 @@ M1/S2  通过：CPU eval_bn + train_bn full-output parity
 M1/S3  通过：MultiLoss、五类 owner gradient、单步 Adam delta
 M1/S4  通过：full raw CTC -> deploy raw CTC，误差为 0
 M1/S5  通过：完整重参数化、exported float、prepared fake-off 均通过对应门禁
-M1/S6  按 2026-08-06 范围调整暂停，不继续 PT2E/QAT
+M1/S6  按 2026-08-06 范围调整暂停，不继续 PT2E/QAT（该暂停声明仅对 v5 det、v6 rec、v6 det 三个模型成立；
+v5 rec 后续已恢复 PT2E/QAT，见 records §16-29）
 ```
 
-回归结果：`111 passed, 12 subtests passed`。M1 已冻结，后续不设计 `qat_train`；M2 已开始。
+回归结果：`111 passed, 12 subtests passed`（2026-08-06 时点）。M1 已冻结；后续 v5 rec 实际实现了
+`pretrained_train` 角色的 QAT 训练图（`FullRecTrainingWrapper`，records §18-21），M2 已开始。
 
 ### 11.8 M1/S5 重参数化误差定位
 
@@ -652,7 +653,7 @@ qspec 不改；后续 S5 的 rec 重参数化验收固定关闭 TF32，并使用
 
 ```text
 artifacts/pretrained_structure/ppocrv5_mobile_rec/deploy_reparameterization_tf32_off.json
-SHA256 7b1e0dd7a235518e52336c370905c885cf28a3c2df5f3c5a05697f8f601c46b1
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 
 raw logits MAE:          2.9333917090e-4
 raw logits max_abs:      3.8528442383e-3
@@ -690,9 +691,9 @@ pt2e_float_preservation_full_tf32_off.json \
 合同和产物：
 
 ```text
-full weights SHA256:  b229c8d7050064fb8ade27ec12fd6e008682dfdd0e4da6ddcb6a4b7e8b993c9c
-QAT config SHA256:    87ad8753cc2ff5a4aa94980ddcd01803c75a30c18ce231fabc10ba6ce27996b4
-report SHA256:        faff376d31335a3d831ff931f4850bcecb4c98d863fd7f7258931991abad579c
+full weights （哈希已按 AGENTS.md 规则移除，用路径追溯）
+QAT config （哈希已按 AGENTS.md 规则移除，用路径追溯）
+report （哈希已按 AGENTS.md 规则移除，用路径追溯）
 exported nodes:       500
 prepared nodes:       984
 common state keys:    236，changed 0
@@ -733,8 +734,7 @@ Conv-BN；这是 `prepare_qat_pt2e` 的标准 QAT arithmetic rewrite。严格 ra
 artifact:
   artifacts/pretrained_structure/ppocrv5_mobile_rec/
   deploy_reparameterization_full_tf32_off.json
-SHA256:
-  c98f26e9678dc6ff047796da0c0fc675f34a127924b20c1c8b93971d09f91946
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 
 raw logits MAE/max:       2.3934345432e-4 / 1.1271476746e-2
 centered MAE/max:         7.2968076266e-5 / 6.4697265625e-3
@@ -764,10 +764,10 @@ M1/S5 全部门禁通过。按 2026-08-06 范围调整，S6 和后续 PT2E/QAT �
 
 ```text
 weights/PP-OCRv5_mobile_det_pretrained.pdparams
-SHA256 7e2e3b0bd5bbdcb0b842cb92aaacc2852f80299a4858b8767a45bd0c6e955648
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 
 weights/ptocr_v5_mobile_det.pth
-SHA256 d5013fadb085acfac1ed29dcd3106ccc4beca24e31e92258f0b6ee2b793904d3
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 ### 12.2 Paddle/PyTorch full-training parity
@@ -776,7 +776,7 @@ SHA256 d5013fadb085acfac1ed29dcd3106ccc4beca24e31e92258f0b6ee2b793904d3
 
 ```text
 artifacts/pretrained_structure/ppocrv5_mobile_det/training_parity_cpu_final.json
-SHA256 f09502b4d460595e54a71d8d60a6327a73cec098dd783cab854db8b554ddd1a6
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 命令：
@@ -795,8 +795,8 @@ HOME=/tmp/ocr-home PYTHONPATH="$PWD" \
 固定合同：
 
 ```text
-input SHA256:   88bc85f854d5ebe6aa84bf97c31ace20f207d03d91d3ec334deae3df6243abc7
-targets SHA256: b40f02eefdeeeade577e0cb265a7929de004bb809e30cd67f260be5d2e24214f
+input （哈希已按 AGENTS.md 规则移除，用路径追溯）
+targets （哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 关键结果：
@@ -894,10 +894,10 @@ checkpoint：
 
 ```text
 /tmp/ppocrv5_mobile_det_pretrained_float_smoke_20260806/best.pt
-SHA256 ad1e1355b6f20e2e340804a63fe3c77d1221347586fa7d3a971dc1cb5c961875
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 
 /tmp/ppocrv5_mobile_det_pretrained_float_smoke_20260806/last.pt
-SHA256 63f54a2a178e9475e6d570321196ea47371fb59fccd2754d934a1b2a0a2d0f75
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 `best.pt` 以 `--eval-only --eval-stage float --no-qat` strict reload 后，epoch/global step 为 `1/2`，
@@ -939,10 +939,10 @@ ignored source:              0
 
 ```text
 weights/PP-OCRv6_small_rec_pretrained.pdparams
-SHA256 25c9bd54b0e5900916e8bb6ada938abeffb1eac1baedac0ca54a45b1c9310825
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 
 weights/ptocr_v6_small_rec_full.pth
-SHA256 86242dac7e0ba6079698d105cc84e579bcceb170a0633e15eef24aee4474e0f2
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 ### 13.2 S1/S2：full state 和输出 schema
@@ -965,15 +965,15 @@ relative MAE 为 `0/0/0`。
 
 ```text
 artifacts/pretrained_structure/ppocrv6_small_rec/full_training_parity_cpu_final.json
-SHA256 c29d59efc430391d82112a70bd6ce12a582c61024adf4a303fbd4c4f49471995
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 合同：
 
 ```text
-config SHA256:   168cd60ce69ff762415b527315407b4a868d3fab912c73ba5a29b3e569f379b7
-input SHA256:    f7aa65a646ad1f884dad9331eb96e676fe318688edcd448146811d8dbd365c5a
-targets SHA256:  0243ac4708bdcebe4c9ad8cf1d5435a443418f0e3606ff3541f29a8251fbb3be
+config （哈希已按 AGENTS.md 规则移除，用路径追溯）
+input （哈希已按 AGENTS.md 规则移除，用路径追溯）
+targets （哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 关键结果：
@@ -1026,10 +1026,10 @@ validation 按部署合同只评估 CTC，因此不包含 NRTRLoss；训练阶�
 
 ```text
 /tmp/ppocrv6_small_rec_pretrained_float_smoke_20260806/best.pt
-SHA256 a8c4532d241e8212ed38ad9e5eda29885e4aa23bf645e5616adbd86d7afbc432
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 
 /tmp/ppocrv6_small_rec_pretrained_float_smoke_20260806/last.pt
-SHA256 1ffa1bacb064325a4d58593e508083f960925571ccc01151d2734317a32c1ad8
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 `best.pt` 以 `eval-only/float/no-qat` strict reload 后，epoch/global step 为 `1/2`，CTCLoss、总 loss、
@@ -1045,7 +1045,7 @@ M4/PP-OCRv6 small det 的 S0，继续禁止 PT2E/QAT/ONNX。
 
 ```text
 weights/ptocr_v6_det_PP-OCRv6_small_det_pretrained.pth
-SHA256 093e916f664a689efb567d8b0c32f6ff114c406bcceb460ed7c3d3e2e62438bd
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 只作为 legacy deploy 权重保留。当前已完成：
@@ -1062,10 +1062,10 @@ SHA256 093e916f664a689efb567d8b0c32f6ff114c406bcceb460ed7c3d3e2e62438bd
 ```text
 references/PaddleOCR/models/PP-OCRv6_small_det_pretrained/
   PP-OCRv6_small_det_pretrained.pdparams
-SHA256 13e7072d5d6837ee809b03b91ea9def6dc1b1831b3c6e49405e6ddf97875043f
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 
 weights/ptocr_v6_small_det_full.pth
-SHA256 567dd7589140aaefeee3d42cafdb39f1b13e014323fb242a9dc05b9c4a6b7bc8
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 严格映射：
@@ -1085,7 +1085,7 @@ ignored source:              0
 
 ```text
 artifacts/pretrained_structure/ppocrv6_small_det/training_parity_cpu_final.json
-SHA256 55ab09e32e71f069ba561a46cd272869140788ecd5833568f0ae1fe17b34d23e
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 固定 batch `[2,3,64,64]` 下，主 maps 和 p2/p3/p4 三路 aux maps 均为 `[2,3,64,64]`。
@@ -1131,10 +1131,10 @@ val_hmean:                0.4285714286
 
 ```text
 /tmp/ppocrv6_small_det_pretrained_float_smoke_20260806/best.pt
-SHA256 d3f537c7ecad0c4cd069d71eb807eb40e5d88400b955aec09db8f7adf2608e80
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 
 /tmp/ppocrv6_small_det_pretrained_float_smoke_20260806/last.pt
-SHA256 56db8fa1c9c830554c68cf3b9ececdb720a74d5c0296db5d2716372189e034b1
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 `best.pt` strict reload 后主/aux validation losses、precision、recall 和 hmean 逐项一致。smoke 显式使用

@@ -155,6 +155,8 @@ class DBLoss(nn.Module):
     def forward(self, predictions, labels):
         if isinstance(predictions, dict):
             maps = predictions["maps"]
+            if isinstance(maps, (tuple, list)):
+                maps = torch.cat(tuple(maps), dim=1)
         elif isinstance(predictions, (tuple, list)):
             maps = torch.cat(tuple(predictions), dim=1)
         else:

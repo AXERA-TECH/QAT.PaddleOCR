@@ -28,6 +28,24 @@ class ErrorAccumulator:
 
 
 def outputs_as_tuple(outputs):
+    """Normalize model outputs to a tuple of deployment task tensors.
+
+    Dict outputs come from the KD intermediate-exposure wrappers
+    (FullRecTrainingWrapper / DetTrainingWrapper with expose_intermediates):
+    recognition picks the CTC logits, detection picks the shrink map. The
+    bare tensor/tuple paths are unchanged.
+    """
+    if isinstance(outputs, dict):
+        if "ctc" in outputs:
+            return (outputs["ctc"],)
+        head = outputs.get("head_out")
+        if isinstance(head, dict) and "ctc" in head:
+            return (head["ctc"],)
+        if "maps" in outputs:
+            maps = outputs["maps"]
+            shrink = maps[0] if isinstance(maps, (tuple, list)) else maps[:, :1]
+            return (shrink,)
+        raise KeyError(f"Outputs dict has no task output: {sorted(outputs)}")
     return tuple(outputs) if isinstance(outputs, (tuple, list)) else (outputs,)
 
 

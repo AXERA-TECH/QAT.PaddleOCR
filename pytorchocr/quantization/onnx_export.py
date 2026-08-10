@@ -56,7 +56,23 @@ class OutputSelector(nn.Module):
         self.output_index = output_index
 
     def forward(self, *inputs):
-        return self.model(*inputs)[self.output_index]
+        outputs = self.model(*inputs)
+        if isinstance(outputs, dict):
+            # KD-exposed graphs emit keyed task outputs.
+            if "ctc" in outputs:
+                outputs = (outputs["ctc"],)
+            elif "maps" in outputs:
+                maps = outputs["maps"]
+                outputs = (
+                    maps[0] if isinstance(maps, (tuple, list)) else maps[:, :1],
+                )
+            else:
+                raise KeyError(
+                    f"Outputs dict has no task output: {sorted(outputs)}"
+                )
+        elif not isinstance(outputs, (tuple, list)):
+            outputs = (outputs,)
+        return outputs[self.output_index]
 
 
 class RecTrainingDeploymentProjection(nn.Module):
@@ -72,7 +88,16 @@ class RecTrainingDeploymentProjection(nn.Module):
             (images.shape[0], self.max_text_length),
             dtype=torch.int64,
         )
-        return self.model(images, gtc_targets)[0]
+        outputs = self.model(images, gtc_targets)
+        if isinstance(outputs, dict):
+            # KD-exposed full recognition graphs emit a keyed dict.
+            if "ctc" in outputs:
+                return outputs["ctc"]
+            head = outputs.get("head_out", {})
+            if isinstance(head, dict) and "ctc" in head:
+                return head["ctc"]
+            raise KeyError(f"Recognition outputs have no CTC logits: {sorted(outputs)}")
+        return outputs[0]
 
 
 def fold_constant_zero_point_casts(model):

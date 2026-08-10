@@ -4,17 +4,18 @@
 
 ```text
 启动日期:   2026-08-03
-状态:       50-epoch 正式 QAT 训练和 QuantONNX 验收完成
+状态:       50-epoch 正式 QAT 训练和 QuantONNX 导出完成；
+            精度未达验收标准（hmean 0.165 vs 浮点基线 0.420，详见下），不能作为可部署 QAT 模型验收
 tmux:       ppocrv5-mobile-det-qat-icdar50
 device:     cuda:0
-输出目录:   output/icdar2015_ppocrv5_mobile_det_qat
+输出目录:   runs/icdar2015_ppocrv5_mobile_det_qat
 ```
 
 查看实时终端和日志：
 
 ```bash
 tmux attach -t ppocrv5-mobile-det-qat-icdar50
-tail -f output/icdar2015_ppocrv5_mobile_det_qat/train.log
+tail -f runs/icdar2015_ppocrv5_mobile_det_qat/train.log
 ```
 
 训练共完成 50 个 epoch、6250 个 step；Python 训练流程正常结束。tmux socket 在当前受限复核环境中
@@ -27,17 +28,13 @@ checkpoint reload 和 QuantONNX 验收均已通过。
 model:         PP-OCRv5_mobile_det
 model YAML:    configs/det/PP-OCRv5/PP-OCRv5_mobile_det.yml
 Paddle weight: PP-OCRv5_mobile_det_pretrained.pdparams
-Torch weight:  ptocr_v5_mobile_det.pth
+Torch weight:  weights/ptocr_v5_mobile_det.pth
 train:         /home/heqi/dataset/icdr/train_icdar2015_label.txt
 val:           /home/heqi/dataset/icdr/test_icdar2015_label.txt
 data root:     /home/heqi/dataset/icdr
 ```
 
-官方 Paddle 权重 SHA256：
-
-```text
-7e2e3b0bd5bbdcb0b842cb92aaacc2852f80299a4858b8767a45bd0c6e955648
-```
+官方 Paddle 权重（哈希已按 AGENTS.md 规则移除，用路径追溯）。
 
 转换器执行严格一对一映射：905 个 Paddle 参数全部复制，PyTorch 额外的 150 个 key 全部是
 BatchNorm `num_batches_tracked`。相同随机输入上的 Paddle/PyTorch shrink-map MAE 为
@@ -69,22 +66,22 @@ observer 在训练期持续更新，validation 时临时关闭，结束后恢复
 ## 4. 启动命令
 
 ```bash
-cd /home/heqi/project/PaddleOCR/route2/PaddleOCR2Pytorch-QAT
-mkdir -p output/icdar2015_ppocrv5_mobile_det_qat
+cd /home/heqi/project/PaddleOCR
+mkdir -p runs/icdar2015_ppocrv5_mobile_det_qat
 set -o pipefail
 
 env PYTHONPATH="$PWD" CUDA_DEVICE_ORDER=PCI_BUS_ID \
   /home/heqi/miniforge3/envs/torch2.6-qat-yolo/bin/python -u tools/train.py \
   --task det \
   --model-config configs/det/PP-OCRv5/PP-OCRv5_mobile_det.yml \
-  --weights ptocr_v5_mobile_det.pth \
+  --weights weights/ptocr_v5_mobile_det.pth \
   --label-file /home/heqi/dataset/icdr/train_icdar2015_label.txt \
   --data-dir /home/heqi/dataset/icdr \
   --val-label-file /home/heqi/dataset/icdr/test_icdar2015_label.txt \
-  --output-dir output/icdar2015_ppocrv5_mobile_det_qat \
+  --output-dir runs/icdar2015_ppocrv5_mobile_det_qat \
   --training-profile configs/qat/training/ppocrv5_mobile_det_baseline.yml \
   --device cuda:0 \
-  2>&1 | tee output/icdar2015_ppocrv5_mobile_det_qat/train.log
+  2>&1 | tee runs/icdar2015_ppocrv5_mobile_det_qat/train.log
 
 status=${PIPESTATUS[0]}
 echo "TRAIN_EXIT_CODE=$status"
@@ -121,22 +118,15 @@ last global step: 6250
 ## 6. 产物和指纹
 
 ```text
-output/icdar2015_ppocrv5_mobile_det_qat/best.pt
-output/icdar2015_ppocrv5_mobile_det_qat/last.pt
-output/icdar2015_ppocrv5_mobile_det_qat/best_qdq.onnx
-output/icdar2015_ppocrv5_mobile_det_qat/train.log
+runs/icdar2015_ppocrv5_mobile_det_qat/best.pt
+runs/icdar2015_ppocrv5_mobile_det_qat/last.pt（2026-08-10 清理后已删除，仅保留 best.pt/best_qdq.onnx/train.log）
+runs/icdar2015_ppocrv5_mobile_det_qat/best_qdq.onnx
+runs/icdar2015_ppocrv5_mobile_det_qat/train.log
 ```
 
 2026-08-03 SHA256：
 
 ```text
-ec7566884cf2f4aa951c47e9a52f1fc7b8683531b18dfc7107d09f38c9a10485  output/icdar2015_ppocrv5_mobile_det_qat/best.pt
-6df22c798bba4d559b296fdc2ca9ae425df30959d689b61fe0c64d8e90b117ec  output/icdar2015_ppocrv5_mobile_det_qat/last.pt
-aff5348fcfa6dd7dd79480dfdceae662aea4aae0f75394fb0354fdccbbed7847  output/icdar2015_ppocrv5_mobile_det_qat/best_qdq.onnx
-d23d39283ebeb70e2468a532df507e1d06aa02217cdea02529665a6f3dc4ef07  output/icdar2015_ppocrv5_mobile_det_qat/train.log
-5b39ed086fb1071e81456da659dc518e882b4551eb60889d09e3c4eb1573a571  configs/qat/training/ppocrv5_mobile_det_baseline.yml
-3f558757b47104fc072b2f7fa962d1162f07fe9e829cccb1bbb9d0113785bf12  configs/qat/ppocrv5_mobile_det_u8s8.json
-d5013fadb085acfac1ed29dcd3106ccc4beca24e31e92258f0b6ee2b793904d3  ptocr_v5_mobile_det.pth
 ```
 
 ## 7. QuantONNX 验收

@@ -44,6 +44,7 @@
 | [pretrained 训练结构复现](axera_qat/plans/pretrained_training_structure_plan.md) | v5/v6 det/rec 完整训练图、权重转换和部署投影计划 |
 | [检测精度恢复](axera_qat/plans/detection_accuracy_recovery_plan.md) | DB 检测模型的数据处理、输出图、损失和 metric 专项计划 |
 | [识别精度恢复](axera_qat/plans/recognition_accuracy_recovery_plan.md) | CTC/MultiHead 识别模型的预处理、解码和精度专项计划 |
+| [KD 蒸馏支持](axera_qat/plans/distillation_support_plan.md) | v5/v6 浮点与 QAT 蒸馏：多层 KD、Teacher 合同、实验顺序 |
 
 ## 操作指南
 
@@ -51,6 +52,7 @@
 | --- | --- |
 | [训练与推理 ONNX 导出](axera_qat/guides/training_onnx_export.md) | 四类模型浮点训练 ONNX、完整训练 QuantONNX 和去辅助分支推理 QuantONNX 的导出合同 |
 | [初始化 Observer QuantONNX](axera_qat/guides/initialized_observer_quantonnx_export.md) | 不训练、不校准并保持激活初始 qparams 的导出流程 |
+| [KD 蒸馏训练](axera_qat/guides/kd_training.md) | KD 启用方式、合同、多层输出结构对照、checkpoint 导出与结果 |
 | [Pulsar2/AXModel 交付](axera_qat/guides/pulsar2_axmodel_handoff.md) | QuantONNX 检查、Pulsar2 配置、编译和板端验收清单 |
 
 ## 当前实验记录
@@ -60,7 +62,7 @@
 | [精度验证实施记录](axera_qat/records/model_accuracy_validation_results.md) | 总计划各阶段的真实命令、框架对齐指标和结论 |
 | [v5 mobile det QAT 训练](axera_qat/records/icdar2015_ppocrv5_mobile_det_qat_training.md) | ICDAR2015 检测训练参数、checkpoint 和精度记录 |
 | [v5 mobile rec QAT smoke](axera_qat/records/ppocrv5_mobile_rec_qat_smoke.md) | 识别模型浮点转换、PT2E 和 QuantONNX 结构 smoke 记录 |
-| [v5 mobile rec QAT 训练](axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md) | 识别 QAT 多轮实验、Exp2/Exp3 门禁、QuantONNX 审计、SGD 和动态训练高度合同 |
+| [v5 mobile rec QAT 训练](axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md) | 识别 QAT 多轮实验、Exp2/Exp3 门禁、Exp4 KD、QuantONNX 审计、SGD 和动态训练高度合同 |
 | [v5/v4 QAT 兼容性](axera_qat/records/ppocrv5_v4_compatibility.md) | mobile/server 与 v4/v5 模型结构、Conv-BN 和量化兼容性记录 |
 
 ## 历史归档

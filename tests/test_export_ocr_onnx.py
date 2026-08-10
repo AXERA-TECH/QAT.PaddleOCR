@@ -148,6 +148,46 @@ class ExportOcrOnnxTest(unittest.TestCase):
 
         torch.testing.assert_close(output, images + 1)
 
+    def test_training_checkpoint_projection_accepts_kd_exposed_dict(self):
+        class KDExposedFullModel(torch.nn.Module):
+            def forward(self, images, gtc_targets):
+                return {
+                    "ctc": images + 1,
+                    "ctc_neck": gtc_targets.float(),
+                    "gtc": images - 1,
+                    "backbone_out": images,
+                    "neck_out": images * 2,
+                }
+
+        projection = RecTrainingDeploymentProjection(
+            KDExposedFullModel(),
+            max_text_length=25,
+        )
+        images = torch.randn(2, 3, 4, 5)
+
+        output = projection(images)
+
+        torch.testing.assert_close(output, images + 1)
+
+    def test_training_checkpoint_projection_accepts_base_model_dict(self):
+        class BaseModelFullRec(torch.nn.Module):
+            def forward(self, images, gtc_targets):
+                return {
+                    "backbone_out": images,
+                    "neck_out": images * 2,
+                    "head_out": {"ctc": images + 1, "gtc": images - 1},
+                }
+
+        projection = RecTrainingDeploymentProjection(
+            BaseModelFullRec(),
+            max_text_length=25,
+        )
+        images = torch.randn(2, 3, 4, 5)
+
+        output = projection(images)
+
+        torch.testing.assert_close(output, images + 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,12 @@
 # PP-OCRv5/v6 浮点 + QAT 蒸馏(KD)支持计划
 
-状态：已确认范围（2026-08-10），等待实现。
+状态：S1-S6 已完成（2026-08-10）。KD loss、wrapper 中间层暴露、Trainer 集成、train.py CLI、
+profile 合同均已实现并通过全量回归（230 passed + 16 subtests）；S5 smoke 覆盖 float rec/det 与
+QAT rec 三条路径（QAT det 的 KD smoke 未单列，det QAT KD 链路由 float det smoke 与
+QAT rec smoke 共同覆盖）；S6 文档已更新（本文件 + guides/kd_training.md）。KD checkpoint 的
+QuantONNX 导出链路（重建 prepared 图、CTC 投影、QDQ 门禁）已适配 dict 输出并通过 exp4 实际
+导出验证。Exp4（v5 rec QAT + CTC logits KD）epoch-2 acc 0.3717，KD 未恢复精度，主因是未修复的
+U16 observer `eps=2**-12` 截断；详见记录 §29。
 
 ## 1. 目标和边界
 

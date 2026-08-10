@@ -123,7 +123,7 @@ backbone 浮点融合数值等价测试也通过；PPHGNetV2/PPHGNet 的检测 f
 
 ```text
 Paddle: PP-OCRv5_mobile_det_pretrained.pdparams
-SHA256: 7e2e3b0bd5bbdcb0b842cb92aaacc2852f80299a4858b8767a45bd0c6e955648
+（哈希已按 AGENTS.md 规则移除，用路径追溯）
 Torch:  ptocr_v5_mobile_det.pth
 ```
 
@@ -170,7 +170,7 @@ val loss:        4.824806
 val precision:   0.0248417
 val recall:      0.0245546
 val hmean:       0.0246973
-checkpoint:      output/icdar2015_ppocrv5_mobile_det_qat_smoke/best.pt
+checkpoint:      runs/icdar2015_ppocrv5_mobile_det_qat/best.pt（历史 smoke 产物已迁入 runs/）
 ```
 
 从该 checkpoint strict reload 并重新导出的 QuantONNX 结构为：
@@ -184,7 +184,7 @@ Concat shared domains:  1 / 1
 HardSigmoid quantized:  10 / 10
 unquantized Conv:       0
 redundant DQ -> Q:      0
-QuantONNX SHA256:       c3bf9d4b5fe848df41efee3fc93f5c5f850900389c5f65f50bacbfd23ef05b9a
+（QuantONNX 哈希已按 AGENTS.md 规则移除，用路径追溯）
 ```
 
 ORT 禁用 graph optimization 后在 500 张 ICDAR2015 test 图上的复核结果：

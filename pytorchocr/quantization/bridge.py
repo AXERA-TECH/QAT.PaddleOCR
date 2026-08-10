@@ -313,13 +313,14 @@ class DetInferenceWrapper(nn.Module):
 class DetTrainingWrapper(nn.Module):
     """Expose the three DB training maps without auxiliary detection heads."""
 
-    def __init__(self, model):
+    def __init__(self, model, expose_intermediates=False):
         super().__init__()
         self.model = model
+        self.expose_intermediates = bool(expose_intermediates)
 
     def forward(self, images):
-        features = self.model.backbone(images)
-        neck_outputs = self.model.neck(features)
+        backbone_out = self.model.backbone(images)
+        neck_outputs = self.model.neck(backbone_out)
         # v6 RepLKFPN returns auxiliary maps in a dict; v4/v5 RSEFPN/LKPAN
         # return the fused tensor directly. Keep one training graph contract.
         features = (
@@ -330,7 +331,13 @@ class DetTrainingWrapper(nn.Module):
         shrink = self.model.head.binarize(features)
         threshold = self.model.head.thresh(features)
         binary = self.model.head.step_function(shrink, threshold)
-        return shrink, threshold, binary
+        if not self.expose_intermediates:
+            return shrink, threshold, binary
+        return {
+            "maps": (shrink, threshold, binary),
+            "backbone_out": backbone_out,
+            "neck_out": features,
+        }
 
     def set_qat_capture_mode(self):
         self.model.train()
@@ -420,12 +427,13 @@ class FullRecTrainingWrapper(nn.Module):
 
     output_names = ("ctc", "ctc_neck", "gtc")
 
-    def __init__(self, model, max_text_length):
+    def __init__(self, model, max_text_length, expose_intermediates=False):
         super().__init__()
         self.model = model
         self.graph_role = "pretrained_train"
         self.model_type = "rec"
         self.max_text_length = int(max_text_length)
+        self.expose_intermediates = bool(expose_intermediates)
         if self.max_text_length < 2:
             raise ValueError("max_text_length must be at least 2.")
         if isinstance(model.head.gtc_head, str):
@@ -435,7 +443,8 @@ class FullRecTrainingWrapper(nn.Module):
         features = images
         if self.model.use_transform:
             features = self.model.transform(features)
-        features = self.model.backbone(features)
+        backbone_out = self.model.backbone(features)
+        features = backbone_out
         if self.model.use_neck:
             features = self.model.neck(features)
 
@@ -446,7 +455,15 @@ class FullRecTrainingWrapper(nn.Module):
             self.model.head.before_gtc(features),
             padded_targets,
         )
-        return ctc, ctc_neck, gtc
+        if not self.expose_intermediates:
+            return ctc, ctc_neck, gtc
+        return {
+            "ctc": ctc,
+            "ctc_neck": ctc_neck,
+            "gtc": gtc,
+            "backbone_out": backbone_out,
+            "neck_out": features,
+        }
 
     def set_qat_capture_mode(self):
         self.train()

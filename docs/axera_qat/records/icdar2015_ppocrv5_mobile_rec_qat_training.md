@@ -15,7 +15,7 @@
 
 ```text
 model:     configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml
-weights:   ptocr_v5_mobile_rec.pth
+weights:   weights/ptocr_v5_mobile_rec.pth
 qat:       configs/qat/ppocrv5_mobile_rec_u8s8_attn_s8_native_silu.json
 profile:   configs/qat/training/ppocrv5_mobile_rec_native_silu_baseline.yml
 train:     /home/heqi/dataset/icdr/rec_gt_train.txt，4468 张
@@ -50,12 +50,12 @@ env PYTHONPATH="$PWD" CUDA_DEVICE_ORDER=PCI_BUS_ID \
   /home/heqi/miniforge3/envs/torch2.6-qat-yolo/bin/python -u tools/train.py \
   --task rec \
   --model-config configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml \
-  --weights ptocr_v5_mobile_rec.pth \
+  --weights weights/ptocr_v5_mobile_rec.pth \
   --label-file /home/heqi/dataset/icdr/rec_gt_train.txt \
   --data-dir /home/heqi/dataset/icdr \
   --val-label-file /home/heqi/dataset/icdr/rec_gt_test.txt \
   --val-data-dir /home/heqi/dataset/icdr \
-  --output-dir output/icdar2015_ppocrv5_mobile_rec_native_silu_qat \
+  --output-dir runs/icdar2015_ppocrv5_mobile_rec_native_silu_qat \  # 历史实验目录已迁入 runs/（见 §27 清理记录）
   --training-profile configs/qat/training/ppocrv5_mobile_rec_native_silu_baseline.yml \
   --device cuda:1
 ```
@@ -63,7 +63,7 @@ env PYTHONPATH="$PWD" CUDA_DEVICE_ORDER=PCI_BUS_ID \
 ```text
 tmux:   ppocrv5-mobile-rec-native-silu-qat
 log:    /tmp/ppocrv5_mobile_rec_native_silu_qat.log
-output: output/icdar2015_ppocrv5_mobile_rec_native_silu_qat/
+output: runs/icdar2015_ppocrv5_mobile_rec_native_silu_qat/（历史目录已迁入 runs/）
 ```
 
 ## 4. 训练前基线
@@ -133,16 +133,16 @@ observers frozen:               false
 | QAT best / epoch 9 | 0.08858931 | 0.35902189 |
 | 绝对变化 | -0.50505537 | -0.45809861 |
 
-本轮 QAT 工程链路完成，但精度没有恢复到浮点基线，且 epoch 间波动明显。该结果不能作为可部署
-QAT 模型验收通过的证据。当前只记录训练期间 prepared/fake-quant-on validation 指标；尚未对
-`best.pt` 执行后训练 strict reload、converted PT2E、QuantONNX 或 Axera 指标验证。
+本轮（原生 SiLU 合同）QAT 工程链路完成，但精度没有恢复到浮点基线，且 epoch 间波动明显。该结果
+不能作为可部署 QAT 模型验收通过的证据。本节结论只针对原生 SiLU 合同的 `best.pt`；后续 corrected
+系列已补充 strict reload、converted PT2E 和 QuantONNX 验证（见后文）。
 
 ## 7. 训练产物
 
 目录：
 
 ```text
-output/icdar2015_ppocrv5_mobile_rec_native_silu_qat/
+runs/icdar2015_ppocrv5_mobile_rec_native_silu_qat/（历史目录已迁入 runs/）
 ```
 
 主要文件：
@@ -296,7 +296,7 @@ backbone 梯度后需要按 parameter group 恢复。训练入口当前也没有
 CTC 修正前已加载 Python 模块，因此它是原始 baseline 的独立复现，不与 corrected 实验混用。
 
 ```text
-output: output/icdar2015_ppocrv5_mobile_rec_native_silu_qat_repro_20260805/
+output: runs/icdar2015_ppocrv5_mobile_rec_native_silu_qat_repro_20260805/（历史目录，已迁移）
 log:    /tmp/ppocrv5_mobile_rec_native_silu_qat_repro_20260805.log
 best:   epoch 45 / global step 3105
 best accuracy:               0.16225324987963408
@@ -328,7 +328,7 @@ epoch 50 validation loss:    3.5926749417276094
 
 ```text
 profile: configs/qat/training/ppocrv5_mobile_rec_native_silu_corrected_smoke.yml
-output:  output/icdar2015_ppocrv5_mobile_rec_native_silu_qat_corrected_smoke/
+output:  runs/icdar2015_ppocrv5_mobile_rec_native_silu_qat_corrected_smoke/（历史目录，已迁移）
 device:  cuda:2
 seed:    20260805
 ```
@@ -420,7 +420,7 @@ Conv-BN convert 和 ONNX quantized-decomposed lowering；正式训练不能替�
 ```text
 status:          completed（TRAIN_EXIT_CODE=0）
 profile:         configs/qat/training/ppocrv5_mobile_rec_native_silu_corrected_no_warmup.yml
-output:          output/icdar2015_ppocrv5_mobile_rec_native_silu_qat_corrected_no_warmup_20260805/
+output:          runs/icdar2015_ppocrv5_mobile_rec_native_silu_qat_corrected_no_warmup_20260805/
 log:             /tmp/ppocrv5_mobile_rec_native_silu_qat_corrected_no_warmup_20260805.log
 tmux:            ppocrv5-rec-corrected-nowarmup
 device:          cuda:2
@@ -442,12 +442,12 @@ env PYTHONPATH="$PWD" CUDA_DEVICE_ORDER=PCI_BUS_ID \
   /home/heqi/miniforge3/envs/torch2.6-qat-yolo/bin/python -u tools/train.py \
   --task rec \
   --model-config configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml \
-  --weights ptocr_v5_mobile_rec.pth \
+  --weights weights/ptocr_v5_mobile_rec.pth \
   --label-file /home/heqi/dataset/icdr/rec_gt_train.txt \
   --data-dir /home/heqi/dataset/icdr \
   --val-label-file /home/heqi/dataset/icdr/rec_gt_test.txt \
   --val-data-dir /home/heqi/dataset/icdr \
-  --output-dir output/icdar2015_ppocrv5_mobile_rec_native_silu_qat_corrected_no_warmup_20260805 \
+  --output-dir runs/icdar2015_ppocrv5_mobile_rec_native_silu_qat_corrected_no_warmup_20260805 \
   --training-profile configs/qat/training/ppocrv5_mobile_rec_native_silu_corrected_no_warmup.yml \
   --device cuda:2
 ```
@@ -480,9 +480,7 @@ prepared norm edit: 0.759802848945844
 产物：
 
 ```text
-9ecd25535b6e5b9f6c81e382e6e3fe9aad47a7170867a855e7e904ed2d4b3e9a  best.pt
-81ed7672b3bc67eaae9e611a939e19bc528e97243bcf730d3bfc77d58bd353b0  last.pt
-720e5d23cbd53038b9f33388702e54030be726fa62db14befde8e7804180923b  corrected no-warmup profile
+(哈希已按 AGENTS.md 规则移除，产物用路径追溯)
 ```
 
 严格恢复验证日志：
@@ -1073,6 +1071,7 @@ train/val: ICDAR 4468 / 2077
 graph:     pretrained_train; CTC + CTC neck + GTC/NRTR
 qat:       U16 activation + S16 weight, reparameterize=true
 optimizer: SGD, momentum=0.9, lr=1.5e-5, warmup=0
+seed:      20260806
 observer:  enabled throughout training; validation temporarily disables and restores
 shape:     prepared heights 32/48/64, width 320; QuantONNX remains static H=48
 ```
@@ -1201,7 +1200,8 @@ shape:     prepared heights 32/48/64, width 320; QuantONNX remains static H=48
 guard:     epoch 2 accuracy drop must be <= 0.10 from float baseline 0.5936446798
 ```
 
-除 profile 名称和 `reparameterize` 外，Exp3 与 Exp2 的训练字段保持一致，包括 seed。当前 quantizer
+除 profile 名称和 `reparameterize` 外，Exp3 与 Exp2 的训练字段保持一致，包括 seed（`20260806`，
+见 `configs/qat/training/ppocrv5_mobile_rec_u16s16_sgd_dynamic_height_exp3_no_reparameterize.yml`）。当前 quantizer
 仍使用 activation observer `eps=2**-12`；本轮不修复该问题，以免引入第二个实验变量。该限制会使
 U16 输入 `[-1,1]` 的 scale 被截断为 `2^-12`，因此 Exp3 仅用于判断关闭重参数化是否改变训练崩溃，
 不作为最终 16-bit 精度方案。
@@ -1342,3 +1342,112 @@ rec inference: images -> logits(CTC)
 shape、文件大小和路径见 JSON 报告。非重参数化图保留 BN 是预期结构差异，不能直接作为 Axera
 QuantONNX；重参数化版本 BN 均为 0。导出命令和可复现参数见
 `docs/axera_qat/guides/training_onnx_export.md`。
+
+## 29. Exp4：Exp3 基础上开启 KD
+
+2026-08-10 建立 Exp4。该实验从同一完整浮点权重重新 prepare，不恢复 Exp2/Exp3 checkpoint；
+相对 Exp3 只开启输出头 KD（单变量）：
+
+```text
+run:       runs/exp4_ppocrv5_mobile_rec_u16s16_kd/
+tmux:      ppocrv5-rec-u16s16-exp4-kd
+device:    物理 GPU 3；CUDA_VISIBLE_DEVICES=3；进程内 device cuda:0
+weights:   weights/ptocr_v5_mobile_rec_full.pth（teacher 默认同一权重）
+profile:   configs/qat/training/ppocrv5_mobile_rec_u16s16_sgd_dynamic_height_exp4_kd.yml
+graph:     pretrained_train; CTC + CTC neck + GTC/NRTR
+qat:       U16 activation + S16 weight
+reparam:   false（同 Exp3）
+kd:        true；kd_mode=logits（CTC logits 温度 KL，T=4）；kd_weight=1.0；
+           kd_neck_weight=0.0、kd_backbone_weight=0.0（中间层关闭）
+optimizer: SGD, momentum=0.9, lr=1.5e-5, warmup=0
+seed:      20260806（同 Exp3）
+```
+
+启动命令：
+
+```bash
+env PYTHONPATH="$PWD" CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=3 \
+  /home/heqi/miniforge3/envs/torch2.6-qat-yolo/bin/python -u tools/train.py \
+  --task rec \
+  --model-config configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml \
+  --weights weights/ptocr_v5_mobile_rec_full.pth \
+  --label-file /home/heqi/dataset/icdr/rec_gt_train.txt \
+  --data-dir /home/heqi/dataset/icdr \
+  --val-label-file /home/heqi/dataset/icdr/rec_gt_test.txt \
+  --val-data-dir /home/heqi/dataset/icdr \
+  --output-dir runs/exp4_ppocrv5_mobile_rec_u16s16_kd \
+  --training-profile configs/qat/training/ppocrv5_mobile_rec_u16s16_sgd_dynamic_height_exp4_kd.yml \
+  --device cuda:0
+```
+
+### 29.1 结果
+
+epoch 1/2 关键指标（train.log）：
+
+```text
+epoch 1: train ctc=18.41 nrtr=4.32 kd_ctc=99.42 kd_ctc_neck=4.98 kd_backbone_out=32.94
+         val_acc=0.020703  val_ctc=12.44  val_kd_ctc=50.55
+epoch 2: train ctc=9.75   nrtr=3.84  kd_ctc=70.30
+         val_acc=0.371690  val_ctc=7.64   val_kd_ctc=44.40
+```
+
+epoch-2 精度门禁触发并自动停止：
+
+```text
+float accuracy baseline:  0.5936446798
+validation accuracy:      0.3716899374
+accuracy drop:            0.2219547424
+allowed drop:             0.10
+status:                   stopped by epoch-2 accuracy guard
+```
+
+### 29.2 对比与结论
+
+| 实验 | reparam | KD | epoch-2 acc | 结论 |
+| --- | --- | --- | --- | --- |
+| Exp2 | true | 无 | 0.0019 | 重参数化是主要崩溃因素 |
+| Exp3 | false | 无 | 0.3899 | 关重参化大幅恢复，仍超门禁 |
+| Exp4 | false | CTC logits KL | 0.3717 | KD 未恢复精度，acc 与 Exp3 基本持平（略低 0.018） |
+
+- KD 链路在真实 QAT 训练中正常工作：epoch 1/2 均有完整逐层 kd loss 上报，teacher 冻结
+  且中间层特征差异非零（val_kd_backbone_out=42.6），训练可反向；
+- 输出头 KD（CTC logits KL，T=4，weight=1.0）在本配置下未恢复 epoch-2 精度，acc 0.3717
+  与无 KD 的 Exp3（0.3899）基本持平、略低；
+- 与之前分析一致：剩余精度损失主要来自 U16 observer `eps=2**-12` 对 `[-1,1]` 输入 scale
+  的截断（Exp3 记录中已标注），KD 无法弥补该量化噪声；LAB 参数与 BN running stats 漂移
+  仍是次要因素；
+- 产物：`debug_epoch_0002.pt`、`epoch_0001/0002.pt`、`best.pt`、`last.pt`、
+  `epoch2_accuracy_guard.json`、`train.log`。checkpoint 不作为后续恢复起点。
+
+### 29.3 KD checkpoint 导出验证
+
+KD 训练改变了 prepared 图输出结构（`FullRecTrainingWrapper(expose_intermediates=True)`
+的 dict 输出），导出链路为此适配：
+
+- `pytorchocr/diagnostics/checkpoint.py::build_prepared_qat_checkpoint` 从 metadata 的
+  `kd` 字段决定 `expose_intermediates`，严格重建与训练一致的图（rec 传
+  `expose_intermediates=kd`，det 构建后设 `model.expose_intermediates`）；
+- `RecTrainingDeploymentProjection` / `OutputSelector` / `outputs_as_tuple` /
+  `evaluate_recognition_qat` 支持 dict 输出（rec 取 `ctc`、det 取 shrink）；
+- `run_checkpoint_export` 对非重参数化图的 QDQ 门禁失败记录
+  `{"status": "blocked", "error": ...}` 而非中断，诊断 ONNX 保留。
+
+用 exp4 `debug_epoch_0002.pt` 实际导出验证：
+
+```text
+model:   /tmp/exp4_kd_debug_qat.onnx
+input:   images [1, 3, 48, 320]（gtc_targets 已投影掉）
+output:  logits [1, 40, 18385]
+strict load: 通过（expose 图重建 + checkpoint 权重）
+converted -> ONNX:      MAE 0.011027, max_abs 0.084290, argmax 1.0
+prepared fake-on -> ONNX: MAE 0.013656, max_abs 0.098823, argmax 1.0
+QDQ 门禁: blocked（19 个 BatchNormalization，exp4 非重参数化图已知特征）
+```
+
+### 29.4 下一步建议
+
+1. 修复 U16 activation observer 的 `eps=2**-12` 截断（改为与 U8 一致的合理 eps 或独立
+   配置），从浮点权重重新 prepare 做单变量验证；
+2. 之后再做 KD 变量：Exp5 = 修复 observer + KD（对照 Exp3 修复 observer 后的无 KD 基线）；
+3. 中间层 KD（ctc_neck/backbone_out）保持关闭，待输出头 KD 在修复 observer 后确认有效再
+   按单变量规则逐步启用。

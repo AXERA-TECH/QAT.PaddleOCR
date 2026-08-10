@@ -9,6 +9,33 @@ from torch.ao.quantization import (
 )
 
 
+def _freeze_teacher(teacher):
+    """Freeze all teacher parameters and switch it to inference semantics.
+
+    Teachers that expose return_all_feats keep BaseModel.forward's training
+    branch (full output dict) while every BatchNorm stays in eval mode so the
+    teacher produces deterministic running-stat features. Wrapper teachers are
+    set to eval so all BatchNorm layers use running statistics; CTCHead keeps
+    its training flag so raw logits (not Softmax) are emitted, matching the
+    student training graph used by CTCLoss and KD.
+    """
+    for parameter in teacher.parameters():
+        parameter.requires_grad = False
+    if getattr(teacher, "return_all_feats", False):
+        teacher.train()
+        for module in teacher.modules():
+            if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
+                module.eval()
+        return
+    teacher.eval()
+    model = getattr(teacher, "model", teacher)
+    head = getattr(model, "head", None)
+    if head is not None:
+        ctc_head = getattr(head, "ctc_head", None)
+        if ctc_head is not None:
+            ctc_head.training = True
+
+
 class Trainer:
     def __init__(
         self,
@@ -19,6 +46,9 @@ class Trainer:
         device="cpu",
         amp=False,
         grad_clip_norm=None,
+        teacher=None,
+        kd_criterion=None,
+        kd_weight=1.0,
     ):
         self.model = model
         self.criterion = criterion
@@ -27,6 +57,18 @@ class Trainer:
         self.device = torch.device(device)
         self.amp = bool(amp and self.device.type == "cuda")
         self.grad_clip_norm = grad_clip_norm
+        self.teacher = teacher
+        self.kd_criterion = kd_criterion
+        self.kd_weight = float(kd_weight)
+        if (teacher is None) != (kd_criterion is None):
+            raise ValueError(
+                "Knowledge distillation requires both a teacher and a KD criterion."
+            )
+        if teacher is not None:
+            if self.kd_weight < 0:
+                raise ValueError("KD weight must be non-negative.")
+            _freeze_teacher(teacher)
+            self.teacher.to(self.device)
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.amp)
         self.epoch = 0
         self.global_step = 0
@@ -90,6 +132,43 @@ class Trainer:
             return self.model(images, data=data)
         return self.model(images)
 
+    def _teacher_forward(self, images, targets):
+        if self.teacher is None:
+            raise RuntimeError("No teacher is configured.")
+        is_full_recognition = (
+            getattr(self.teacher, "graph_role", None) == "pretrained_train"
+            and getattr(self.teacher, "model_type", None) == "rec"
+        )
+        if is_full_recognition:
+            required = ("targets", "gtc_targets", "target_lengths", "valid_ratio")
+            missing = [name for name in required if name not in targets]
+            if missing:
+                raise ValueError(f"Teacher full recognition targets are missing: {missing}")
+            data = [
+                targets["targets"],
+                targets["gtc_targets"],
+                targets["target_lengths"],
+                targets["valid_ratio"],
+            ]
+            return self.teacher(images, data=data)
+        return self.teacher(images)
+
+    def _kd_losses(self, outputs, teacher_outputs):
+        kd_losses = self.kd_criterion(outputs, teacher_outputs)
+        if not isinstance(kd_losses, dict) or "kd_loss" not in kd_losses:
+            raise ValueError("KD criterion must return a dict with key 'kd_loss'.")
+        return kd_losses
+
+    def _combine_losses(self, task_losses, kd_losses):
+        if self.teacher is None:
+            return task_losses
+        combined = dict(task_losses)
+        combined.update(kd_losses)
+        combined["loss"] = (
+            task_losses["loss"] + self.kd_weight * kd_losses["kd_loss"]
+        )
+        return combined
+
     def train_step(self, images, targets):
         self._set_model_mode(training=True)
         images = images.to(self.device, non_blocking=True)
@@ -100,7 +179,14 @@ class Trainer:
             enabled=self.amp,
         ):
             outputs = self._forward(images, targets)
-            losses = self.criterion(outputs, targets)
+            task_losses = self.criterion(outputs, targets)
+            if self.teacher is not None:
+                with torch.no_grad():
+                    teacher_outputs = self._teacher_forward(images, targets)
+                kd_losses = self._kd_losses(outputs, teacher_outputs)
+            else:
+                kd_losses = None
+            losses = self._combine_losses(task_losses, kd_losses)
             loss = losses["loss"]
         if not torch.isfinite(loss):
             raise FloatingPointError(f"Non-finite training loss: {float(loss)}")
@@ -162,7 +248,17 @@ class Trainer:
                         enabled=self.amp,
                     ):
                         outputs = self._forward(images, targets)
-                        losses = self.criterion(outputs, targets)
+                        task_losses = self.criterion(outputs, targets)
+                        if self.teacher is not None:
+                            with torch.no_grad():
+                                teacher_outputs = self._teacher_forward(
+                                    images,
+                                    targets,
+                                )
+                            kd_losses = self._kd_losses(outputs, teacher_outputs)
+                        else:
+                            kd_losses = None
+                        losses = self._combine_losses(task_losses, kd_losses)
                     if metric is not None:
                         metric.update(outputs, targets)
                     for name, value in losses.items():

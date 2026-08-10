@@ -12,7 +12,19 @@ from .factory import (
     config_value,
     update_best_validation,
 )
-from .losses import CTCLoss, DBLoss, MultiLoss, NRTRLoss
+from .losses import (
+    CTCLoss,
+    DBLoss,
+    KDCompositeLoss,
+    KDFeatureLoss,
+    KDLogitsLoss,
+    KDMapsLoss,
+    MultiLoss,
+    NRTRLoss,
+    build_kd_criterion,
+    default_kd_layers,
+    normalize_outputs,
+)
 from .metrics import (
     CTCRecognitionMetric,
     DetectionIoUEvaluator,
@@ -41,6 +53,13 @@ from .trainer import Trainer
 __all__ = [
     "CTCLoss",
     "DBLoss",
+    "KDCompositeLoss",
+    "KDFeatureLoss",
+    "KDLogitsLoss",
+    "KDMapsLoss",
+    "build_kd_criterion",
+    "default_kd_layers",
+    "normalize_outputs",
     "CTCRecognitionMetric",
     "DetectionDataset",
     "DetectionIoUEvaluator",

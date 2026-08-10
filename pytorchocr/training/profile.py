@@ -33,6 +33,14 @@ _TRAINING_KEYS = {
     "multi_scale_training",
     "float_accuracy_baseline",
     "epoch2_max_accuracy_drop",
+    "kd",
+    "teacher_weights",
+    "teacher_model_config",
+    "kd_mode",
+    "kd_weight",
+    "kd_temperature",
+    "kd_neck_weight",
+    "kd_backbone_weight",
 }
 _RESUME_CONTRACT_KEYS = (
     "task",
@@ -42,7 +50,13 @@ _RESUME_CONTRACT_KEYS = (
     "qat_config_sha256",
     "torch_version",
     "reparameterized",
-    "image_shape",
+    "kd",
+    "teacher_model_config",
+    "kd_mode",
+    "kd_weight",
+    "kd_temperature",
+    "kd_neck_weight",
+    "kd_backbone_weight",
     "rec_ctc_backbone_grad",
     "rec_graph",
     "optimizer",
@@ -174,9 +188,23 @@ def _validate_training_values(training):
         "reparameterize",
         "rec_ctc_backbone_grad",
         "multi_scale_training",
+        "kd",
     ):
         if key in training and not isinstance(training[key], bool):
             raise ValueError(f"Training profile {key} must be boolean.")
+    for key in ("kd_weight", "kd_neck_weight", "kd_backbone_weight"):
+        if key in training and training[key] is not None and training[key] < 0:
+            raise ValueError(f"Training profile {key} must be non-negative.")
+    if "kd_temperature" in training and training["kd_temperature"] <= 0:
+        raise ValueError("Training profile kd_temperature must be positive.")
+    if "kd_mode" in training and training["kd_mode"] not in (
+        "logits",
+        "logits_mse",
+        "maps",
+    ):
+        raise ValueError(
+            "Training profile kd_mode must be 'logits', 'logits_mse', or 'maps'."
+        )
     if "rec_graph" in training and training["rec_graph"] not in (
         "deploy",
         "pretrained_train",
@@ -325,7 +353,7 @@ def _same_relocated_model_config(saved, current):
 def validate_resume_contract(saved_metadata, current_metadata):
     mismatches = []
     for key in _RESUME_CONTRACT_KEYS:
-        if key == "rec_ctc_backbone_grad":
+        if key in ("rec_ctc_backbone_grad", "kd"):
             saved = bool(saved_metadata.get(key, False))
             current = bool(current_metadata.get(key, False))
         elif key == "rec_graph":

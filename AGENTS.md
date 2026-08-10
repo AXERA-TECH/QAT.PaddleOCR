@@ -21,7 +21,7 @@ NRTR/GTC 辅助分支及最终 Softmax。
 ```text
 Python 3.10
 PyTorch 2.6.0
-ONNX 1.17.0
+ONNX 1.21.0
 ONNX Runtime 1.21.0
 ```
 
@@ -37,19 +37,22 @@ PYTHON=/home/heqi/miniforge3/envs/torch2.6-qat-yolo/bin/python
 env PYTHONPATH="$PWD" "$PYTHON" ...
 ```
 
-不要依赖外部 `QAT.axera` Python 路径。当前 Axera quantizer 已 vendored 到
-`pytorchocr/quantization/axera/vendor/`；来源和许可证见该目录及 `pytorchocr/quantization/` 内的
-说明文件。
+不要依赖外部 `QAT.axera` Python 路径。当前 Axera quantizer 已 vendored 到 `pytorchocr/quantization/`（ax_quantizer.py、
+ax_quantizer_utils.py、quantized_decomposed_dequantize_per_channel.py 及 LICENSE/UPSTREAM.md）；
+来源和许可证见 `pytorchocr/quantization/` 内的说明文件。
 
 ## 目录职责
 
 ```text
 configs/                 Paddle 模型 YAML、Axera QAT JSON、QAT training profile
 converter/               Paddle 参数到 PyTorch state dict 的严格转换
-pytorchocr/modeling/     PyTorch PP-OCR 模型实现
+pytorchocr/modeling/     PyTorch PP-OCR 模型实现（architectures/backbones/necks/heads）
 pytorchocr/training/     dataset、loss、metric、模型工厂、trainer、profile 合同
 pytorchocr/quantization/ PT2E/Axera adapter、vendored quantizer、QDQ 验证
 pytorchocr/diagnostics/  checkpoint 重建、数据审计、误差和任务指标公共 API
+pytorchocr/data/         PaddleOCR 官方数据管线兼容层（上游遗留，只读参考）
+pytorchocr/postprocess/  后处理与 DB/CTC decode（上游遗留，部分由 training/metrics 替代）
+pytorchocr/utils/        字典、公共工具（hashing 等）
 tools/                   训练、导出、诊断和验证 CLI 编排
 tests/                   稳定 package API 和工具契约回归
 docs/                    设计、计划、实验过程和指标记录
@@ -220,7 +223,7 @@ PP-OCRv5 recognition 修改图或 qspec 后，使用：
 
 1. 保持改动最小，不顺带重构无关 PaddleOCR 模块。
 2. 不回滚工作树中来源不明的修改；本仓库经常包含用户正在进行的实验。
-3. 手工修改量化规则前先阅读 `pytorchocr/quantization/axera/vendor/` 与
+3. 手工修改量化规则前先阅读 `pytorchocr/quantization/` 内 vendored 的 ax_quantizer 实现与
    `references/QAT.axera/utils/` 的对应实现。
 4. 公共逻辑放入 `pytorchocr`，CLI 保持薄，测试优先导入 package API。
 5. 所有模型结构、qspec、预处理、loss、训练参数、observer 生命周期或 ONNX 图变换修改都必须添加

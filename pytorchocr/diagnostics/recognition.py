@@ -56,7 +56,14 @@ def evaluate_recognition_qat(
         for images, targets in loader:
             images = images.to(device, non_blocking=True)
             if full_training_graph:
-                logits = model(images, targets["gtc_targets"].to(device))[0]
+                outputs = model(images, targets["gtc_targets"].to(device))
+                if isinstance(outputs, dict):
+                    logits = outputs.get(
+                        "ctc",
+                        outputs.get("head_out", {}).get("ctc"),
+                    )
+                else:
+                    logits = outputs[0]
             else:
                 logits = model(images)
             losses = criterion(logits, _to_device(targets, device))

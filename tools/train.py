@@ -25,11 +25,13 @@ from pytorchocr.training import (
     Trainer,
     build_criterion,
     build_dataset,
+    build_kd_criterion,
     build_optimizer,
     build_scheduler,
     build_task_model,
     build_validation_metric,
     config_value,
+    default_kd_layers,
     detection_collate,
     epoch2_accuracy_guard,
     file_sha256,
@@ -148,7 +150,87 @@ def parse_args():
         default=None,
         help="Default: enabled for QAT and disabled for float training.",
     )
+    parser.add_argument(
+        "--kd",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable knowledge distillation with a frozen float teacher.",
+    )
+    parser.add_argument(
+        "--teacher-weights",
+        help="Teacher weights; defaults to the student float --weights.",
+    )
+    parser.add_argument(
+        "--teacher-model-config",
+        help="Teacher model YAML; defaults to --model-config.",
+    )
+    parser.add_argument(
+        "--kd-mode",
+        choices=["logits", "logits_mse", "maps"],
+        help="KD loss mode for the task head (rec: logits/logits_mse, det: maps).",
+    )
+    parser.add_argument("--kd-weight", type=float)
+    parser.add_argument("--kd-temperature", type=float)
+    parser.add_argument(
+        "--kd-neck-weight",
+        type=float,
+        help="Intermediate neck feature KD weight (default 0, disabled).",
+    )
+    parser.add_argument(
+        "--kd-backbone-weight",
+        type=float,
+        help="Intermediate backbone feature KD weight (default 0, disabled).",
+    )
     return parser.parse_args()
+
+
+def _set_intermediate_exposure(model, task, qat, rec_graph):
+    """Expose intermediate features for multi-layer KD on the student side.
+
+    rec QAT uses FullRecTrainingWrapper(expose_intermediates=...) at
+    construction; rec float training consumes the MultiHead top-level dict and
+    must NOT enable return_all_feats (MultiLoss requires the ctc/gtc keys at
+    the top level). det uses DetTrainingWrapper (QAT) or a bare model with
+    return_all_feats=True (float).
+    """
+    if task == "det":
+        if qat:
+            model.expose_intermediates = True
+        else:
+            model.return_all_feats = True
+
+
+def build_teacher(args, qat, reparameterize, rec_graph, rec_ctc_backbone_grad):
+    teacher_config = args.teacher_model_config or args.model_config
+    teacher_weights = args.teacher_weights or args.weights
+    teacher = build_task_model(
+        args.task,
+        teacher_config,
+        weights_path=teacher_weights,
+        reparameterize=reparameterize,
+        det_graph="training" if qat else "pretrained_train",
+        rec_ctc_backbone_grad=rec_ctc_backbone_grad,
+        rec_graph=rec_graph,
+    )
+    if args.task == "rec":
+        # The frozen teacher must emit full training-branch outputs (including
+        # backbone/neck features) for multi-layer KD; _freeze_teacher keeps its
+        # BatchNorm layers in eval mode.
+        if rec_graph == "pretrained_train":
+            teacher.return_all_feats = True
+    else:
+        _set_intermediate_exposure(teacher, args.task, qat, rec_graph)
+    return teacher
+
+
+def build_kd_layers(args, kd_mode):
+    layers = default_kd_layers(args.task, kd_mode=kd_mode, head_weight=1.0)
+    if args.kd_neck_weight:
+        neck_key = "ctc_neck" if args.task == "rec" else "neck_out"
+        layers[neck_key] = ("mse", float(args.kd_neck_weight))
+    if args.kd_backbone_weight:
+        layers["backbone_out"] = ("mse", float(args.kd_backbone_weight))
+    return layers
 
 
 def train(args):
@@ -371,6 +453,42 @@ def train(args):
     reparameterize = bool(
         profile_value(args.reparameterize, profile, "reparameterize", qat)
     )
+    kd = bool(config_value(args.kd, profile.training.get("kd", False) if profile else False))
+    teacher_weights = config_value(
+        args.teacher_weights,
+        profile.training.get("teacher_weights") if profile else None,
+    )
+    teacher_model_config = config_value(
+        args.teacher_model_config,
+        profile.training.get("teacher_model_config") if profile else None,
+    )
+    kd_mode = profile_value(args.kd_mode, profile, "kd_mode")
+    kd_weight = profile_value(args.kd_weight, profile, "kd_weight", 1.0)
+    kd_temperature = profile_value(
+        args.kd_temperature,
+        profile,
+        "kd_temperature",
+        4.0,
+    )
+    kd_neck_weight = profile_value(
+        args.kd_neck_weight,
+        profile,
+        "kd_neck_weight",
+        0.0,
+    )
+    kd_backbone_weight = profile_value(
+        args.kd_backbone_weight,
+        profile,
+        "kd_backbone_weight",
+        0.0,
+    )
+    if kd:
+        if not args.weights:
+            raise ValueError("KD training requires --weights for the teacher baseline.")
+        if kd_weight < 0 or kd_neck_weight < 0 or kd_backbone_weight < 0:
+            raise ValueError("KD weights must be non-negative.")
+        if kd_temperature <= 0:
+            raise ValueError("--kd-temperature must be positive.")
     requested_amp = bool(profile_value(args.amp, profile, "amp", True))
     effective_amp = bool(requested_amp and not qat)
     if qat and requested_amp:
@@ -388,6 +506,8 @@ def train(args):
         rec_ctc_backbone_grad=rec_ctc_backbone_grad,
         rec_graph=rec_graph,
     )
+    if kd:
+        _set_intermediate_exposure(model, args.task, qat, rec_graph)
     float_node_count = None
     if qat:
         example_images, example_targets = next(iter(loader))
@@ -397,6 +517,7 @@ def train(args):
             model = FullRecTrainingWrapper(
                 model,
                 max_text_length=int(global_config.get("max_text_length", 25)),
+                expose_intermediates=kd,
             ).set_qat_capture_mode()
             example_inputs = (example_images, example_targets["gtc_targets"])
             batch_aligned_inputs = 1
@@ -456,6 +577,23 @@ def train(args):
         warmup_epochs=warmup_epochs,
         final_factor=lr_final_factor,
     )
+    teacher = None
+    kd_criterion = None
+    if kd:
+        teacher = build_teacher(
+            args,
+            qat,
+            reparameterize,
+            rec_graph,
+            rec_ctc_backbone_grad,
+        )
+        kd_criterion = build_kd_criterion(
+            args.task,
+            kd_layers=build_kd_layers(args, kd_mode),
+            kd_weight=kd_weight,
+            kd_temperature=kd_temperature,
+            rec_graph=rec_graph,
+        )
     trainer = Trainer(
         model,
         build_criterion(args.task, config, rec_multi_head=rec_multi_head),
@@ -466,6 +604,9 @@ def train(args):
         grad_clip_norm=profile_value(
             args.grad_clip_norm, profile, "grad_clip_norm"
         ),
+        teacher=teacher,
+        kd_criterion=kd_criterion,
+        kd_weight=kd_weight if kd else 1.0,
     )
     validation_metric = (
         build_validation_metric(args.task, config, config_path=args.model_config)
@@ -498,6 +639,22 @@ def train(args):
         "qat_config_sha256": file_sha256(qat_config) if qat_config else None,
         "torch_version": str(torch.__version__),
         "reparameterized": reparameterize,
+        "kd": kd,
+        "kd_mode": kd_mode if kd else None,
+        "kd_weight": kd_weight if kd else None,
+        "kd_temperature": kd_temperature if kd else None,
+        "kd_neck_weight": kd_neck_weight if kd else None,
+        "kd_backbone_weight": kd_backbone_weight if kd else None,
+        "teacher_weights": (
+            str(Path(teacher_weights).resolve())
+            if kd and teacher_weights
+            else None
+        ),
+        "teacher_model_config": (
+            str(Path(teacher_model_config).resolve())
+            if kd and teacher_model_config
+            else None
+        ),
         "rec_ctc_backbone_grad": rec_ctc_backbone_grad,
         "rec_graph": rec_graph if args.task == "rec" else None,
         "head_schema": (

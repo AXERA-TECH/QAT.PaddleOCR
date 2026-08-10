@@ -37,6 +37,7 @@ def build_prepared_qat_checkpoint(
         weights_path = metadata.get("weights")
     task = metadata["task"]
     rec_graph = metadata.get("rec_graph", "deploy")
+    kd = bool(metadata.get("kd", False))
     model = build_task_model(
         task,
         model_config,
@@ -48,6 +49,9 @@ def build_prepared_qat_checkpoint(
         ),
         rec_graph=rec_graph,
     )
+    if kd and task == "det":
+        # KD checkpoints were captured with intermediate features exposed.
+        model.expose_intermediates = True
     captured_batch = int(metadata.get("batch_size", 1))
     image_shape = tuple(metadata["image_shape"])
     capture_images = torch.empty(captured_batch, *image_shape)
@@ -61,6 +65,7 @@ def build_prepared_qat_checkpoint(
         model = FullRecTrainingWrapper(
             model,
             max_text_length=max_text_length,
+            expose_intermediates=kd,
         ).set_qat_capture_mode()
         capture_targets = torch.zeros(
             captured_batch,

@@ -19,7 +19,7 @@ BN 参数名按 Paddle 约定为 `weight/bias/_mean/_variance/_epsilon`。
 | 检测训练策略 | **DSR**(shrink 0.4→0.6)、**CML 蒸馏** | 同 v4 | 辅助深度监督 |
 | 识别 Neck | SVTR(use_guide,即 Lite-Neck) | SVTR(use_guide) | **EncoderWithLightSVTR**(加性跳连) |
 | 识别解码 | MultiHead(CTC + **NRTR**) | MultiHead(CTC + NRTR) | MultiHead(CTC + NRTR) |
-| 识别训练策略 | **DF 数据挖掘**、**GTC-NRTR**、**Multi-Scale**、**DKD 蒸馏** | 同 v4(无 DKD) | 同 v4 |
+| 识别训练策略 | **DF 数据挖掘**、**GTC-NRTR**、**Multi-Scale**、**DKD 蒸馏** | 同 v4(无 DKD) | 同 v5(无 DKD) |
 | 结构重参数化 | LCNetV3 RepLayer | LCNetV3 RepLayer | LCNetV4 RepDWConv / Stem / FPN |
 
 ## 1. PP-OCRv4
@@ -100,7 +100,7 @@ GTC(Guided Training of CTC)延续 v3;v4 把指导分支从 SAR(循环神经网�
   (rnn.py:218-220),指导分支梯度不回流 backbone;
 - MultiHead(rec_multi_head.py:67)并行 CTCHead(rec_ctc_head.py:35)+ NRTR
   Transformer(rec_nrtr_head.py:25);训练返回 `{"ctc","ctc_neck","gtc"}`,eval 只返回
-  `ctc_out`(rec_multi_head.py:142-157)。
+  `ctc_out`(rec_multi_head.py:142-153)。
 
 Lite-Neck + GTC-NRTR 精度 72.7%→73.21%(blog 消融 03)。
 
@@ -252,7 +252,7 @@ attn = softmax(q·kᵀ / √d);  out = attn·v → proj
 
 - CTC 路径:`SequenceEncoder(svtr)` → `CTCHead`;训练 forward 返回
   `{"ctc": ctc_out, "ctc_neck": ctc_encoder, "gtc": gtc_out}`,非训练模式只返回
-  `ctc_out`(rec_multi_head.py:142-157);
+  `ctc_out`(rec_multi_head.py:142-153);
 - NRTR 路径:`FCTranspose`(rec_multi_head.py:39,转置投影 `W` 使 Paddle Conv 权重映射到 Linear)+
   Transformer 解码器,训练时提供辅助监督,推理移除;
 - 训练 Loss = `MultiLoss(CTCLoss + NRTRLoss)`。
@@ -369,7 +369,8 @@ out = z + skip
 ### 3.4 多语言
 
 v6 字典扩展至 50 语言(`references/PaddleOCR/ppocr/utils/dict/ppocrv6_dict.txt`,
-class 数 18385+3),small/medium 单模型覆盖中/繁/英/日 + 46 拉丁语系语言;tiny 不含日文。
+class 数 18710,即 18708 字典字符 + space + CTC blank),small/medium 单模型覆盖中/繁/英/日 +
+46 拉丁语系语言;tiny 不含日文。(v5 字典 class 数为 18385,不要与 v6 混淆。)
 
 ## 4. 关键差异表
 

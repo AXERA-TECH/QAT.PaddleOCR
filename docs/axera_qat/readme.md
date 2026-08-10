@@ -8,14 +8,16 @@
 - 当前执行计划：[精度恢复总计划](plans/model_accuracy_validation_plan.md)、
   [pretrained 训练结构复现](plans/pretrained_training_structure_plan.md)、
   [检测专项](plans/detection_accuracy_recovery_plan.md)、
-  [识别专项](plans/recognition_accuracy_recovery_plan.md)。
+  [识别专项](plans/recognition_accuracy_recovery_plan.md)、
+  [KD 蒸馏支持](plans/distillation_support_plan.md)。
 - 当前实验记录：[精度验证结果](records/model_accuracy_validation_results.md)、
   [v5 mobile det 训练](records/icdar2015_ppocrv5_mobile_det_qat_training.md)、
   [v5 mobile rec smoke](records/ppocrv5_mobile_rec_qat_smoke.md)、
-  [v5 mobile rec 训练](records/icdar2015_ppocrv5_mobile_rec_qat_training.md)、
+  [v5 mobile rec 训练](records/icdar2015_ppocrv5_mobile_rec_qat_training.md)（含 Exp2-Exp4）、
   [v5/v4 兼容性](records/ppocrv5_v4_compatibility.md)。
 - 操作指南：[训练图 ONNX 导出](guides/training_onnx_export.md)、
   [初始化 observer 导出](guides/initialized_observer_quantonnx_export.md)、
+  [KD 蒸馏训练](guides/kd_training.md)、
   [Pulsar2/AXModel 交付](guides/pulsar2_axmodel_handoff.md)。
 - 历史归档：[早期 v6/ICDAR 基线](archive/baselines/)、
   [Ultralytics 调研与 QAT.YOLO 迁移](archive/migration/)。归档指标只用于追溯，不能代替当前模型验收。
@@ -55,7 +57,7 @@ QAT.axera reference:
 上游仓库中的大量图片资源。开发分支为：
 
 ```text
-feat/axera-qat-training
+feat/kd-support（基线 feat/axera-qat-training 提交 3c5ed15）
 ```
 
 当前参考环境：
@@ -63,7 +65,7 @@ feat/axera-qat-training
 ```text
 Python:       3.10
 PyTorch:      2.6.0+cu118
-ONNX:         1.17.0
+ONNX:         1.21.0
 ONNX Runtime: 1.21.0
 ```
 
@@ -168,7 +170,7 @@ PT2E/QAT.axera 稳定捕获。
 | PP-OCRv6 small rec CTC | CTC 已对齐 | 已转换 | ICDAR 50 epoch，best acc 0.73375 | checkpoint 已导出 | checker/ORT 通过 | 待编译 |
 | PP-OCRv6 tiny/medium | 未开始 | 未开始 | 未开始 | 未开始 | 未开始 | 未开始 |
 | PP-OCRv5 mobile det | 已对齐 | 已严格转换 | ICDAR 50 epoch，best hmean 0.16527 | checkpoint 已导出 | checker/ORT 500 图通过，hmean 0.14832 | 待编译 |
-| PP-OCRv5 mobile rec CTC | 已对齐，完整指标已重测 | 已严格转换 | 原生 SiLU 50 epoch QAT 进行中 | 局部 S8 smoke 与 fake-off 全验证集通过任务门禁 | checker/ORT 通过，Pulsar2 配置已生成 | 待编译 |
+| PP-OCRv5 mobile rec CTC | 已对齐，完整指标已重测 | 已严格转换 | 原生 SiLU 50 epoch 已完成（精度恢复未通过）；U16/S16 Exp1-4 已执行（含 KD 的 Exp4） | U16/S16 全局 + Attention S16 合同；epoch-2 门禁均未通过 | Exp2/Exp3 debug QuantONNX 供结构检查，Pulsar2 配置已生成 | 待编译 |
 | PP-OCRv5 server det/rec | 随机权重构图通过 | 未转换 | 未开始 | 随机权重 smoke 通过 | QDQ 结构通过 | 未开始 |
 | PP-OCRv4 mobile/server | 随机权重构图通过 | 未转换 | 未开始 | 随机权重 smoke 通过 | QDQ 结构通过 | 未开始 |
 
@@ -404,15 +406,15 @@ rec: input [1,3,48,64] -> [1,40,18710]
 python tools/train.py \
   --task det \
   --model-config configs/det/PP-OCRv6/PP-OCRv6_small_det.yml \
-  --weights ptocr_v6_det_PP-OCRv6_small_det_pretrained.pth \
+  --weights weights/ptocr_v6_det_PP-OCRv6_small_det_pretrained.pth \
   --label-file /path/to/train.txt --data-dir /path/to/images \
-  --output-dir output/ppocrv6_det_qat \
+  --output-dir runs/ppocrv6_det_qat \
   --qat --qat-config configs/qat/ppocrv6_small_det_u8s8.json \
   --device cuda
 
 python tools/export_ocr_onnx.py checkpoint \
-  --checkpoint output/ppocrv6_det_qat/last.pt \
-  --output output/ppocrv6_det_qat.onnx \
+  --checkpoint runs/ppocrv6_det_qat/last.pt \
+  --output exports/quantonnx/ppocrv6_det_qat.onnx \
   --batch-size 1
 ```
 
@@ -760,7 +762,7 @@ accuracy/normalized edit similarity，并增加严格 checkpoint `--eval-only`�
 ```text
 det prepared/CUDA: precision=0.57640, recall=0.39047, hmean=0.46556
 rec prepared/CUDA: acc=0.73375, norm_edit_dis=0.88931
-tests:             38 passed
+tests:             38 passed（2026-07-30 时点；当前全量为 230 passed + 16 subtests）
 ```
 
 det checkpoint 是历史代码按最低 loss 选出的 epoch 11；rec 正式 50-epoch checkpoint 按 `acc`

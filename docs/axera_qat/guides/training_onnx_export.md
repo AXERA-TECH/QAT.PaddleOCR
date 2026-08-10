@@ -184,11 +184,13 @@ QuantONNX 的 converted PT2E -> ORT optimize-off 全部输出 MAE/max_abs 均为
 ```text
 /tmp/ppocrv5_mobile_rec_inference_quantonnx_smoke_20260806/quantonnx/
   ppocrv5_mobile_rec_inference_init_qat.onnx
-  705e756e6dd33a057d1de6875440808f0b685c76bb7be2dd0f6c803c25b3df40
 
 /tmp/ppocrv6_small_det_inference_quantonnx_smoke_20260806/quantonnx/
   ppocrv6_small_det_inference_init_qat.onnx
 ```
+
+> 注意：`exports/inference/` 目录当前不存在，上述推理 smoke 产物仅在 `/tmp/` 下保留；推理导出
+> 示例应重新执行生成，或按 `--output-dir` 指定新的保留目录。
 
 rec 图没有 `gtc_targets` 输入，也没有 `gtc_head/before_gtc/NRTR` 节点或 initializer；det 图没有
 `threshold/aux_maps/aux_binarize/aux_thresh` 节点或 initializer。两张图均通过 ONNX checker 和项目

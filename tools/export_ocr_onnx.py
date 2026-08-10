@@ -32,6 +32,7 @@ from pytorchocr.quantization import (
 )
 from pytorchocr.diagnostics import (
     build_prepared_qat_checkpoint,
+    outputs_as_tuple,
     prepared_random_stage_outputs,
     random_stage_comparison,
 )
@@ -1162,13 +1163,13 @@ def run_checkpoint_export(args):
         dynamic_batch=dynamic_batch,
     )
     with torch.no_grad():
-        converted_outputs = converted(*comparison_inputs)
+        converted_outputs = outputs_as_tuple(converted(*comparison_inputs))
     output_index = 0 if task == "det" or full_rec_graph else None
     output_names = ("maps" if task == "det" else "logits",)
     reference = (
         converted_outputs[output_index]
         if output_index is not None
-        else converted_outputs
+        else converted_outputs[0]
     )
     converted_comparison_outputs = selected_outputs(
         converted_outputs,
@@ -1198,7 +1199,13 @@ def run_checkpoint_export(args):
             0: {1: image_shape[0], 2: image_shape[1], 3: image_shape[2]}
         },
     )
-    onnx_stats = validate_qdq_graph(onnx_model)
+    try:
+        onnx_stats = validate_qdq_graph(onnx_model)
+    except RuntimeError as error:
+        # Non-reparameterized training graphs keep BatchNorm nodes; the QDQ
+        # gate blocks them, but the diagnostic QuantONNX is still exported and
+        # the report records the blocked status (see exp3/exp4 records).
+        onnx_stats = {"status": "blocked", "error": str(error)}
     if full_rec_graph and len(onnx_model.graph.input) != 1:
         raise RuntimeError(
             "Recognition deployment QuantONNX must contain only the images input."
