@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "source": {
+    "path": "/home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv5_mobile_rec_attn_s8_keep_u8_requant_smoke_20260804.onnx",
+    "sha256": "4a5f4609f2ab9a2e555097156b56e840479fe8fc5b43b8cb5c10dcb61a5c2b05"
+  },
+  "optimized": {
+    "path": "/home/heqi/project/PaddleOCR/tmp/frontend/optimized.onnx",
+    "sha256": "e18d66bdc7bc70b73a8330de4c737c508f1e2363b795efd6b457fb51bfb3fa89",
+    "external_data": "/home/heqi/project/PaddleOCR/tmp/frontend/optimized.data",
+    "external_data_sha256": "a56fbe9872f9f5f972011dd064a57bee5572eabf50470e7154398a77cc21bf67"
+  },
+  "operator_delta": {
+    "removed": {
+      "Transpose": 9,
+      "MatMul": 9,
+      "Add": 9
+    },
+    "added": {
+      "FullyConnected": 9
+    },
+    "linear_roles": {
+      "qkv": 2,
+      "attention_projection": 2,
+      "mlp": 4,
+      "ctc": 1
+    }
+  },
+  "normalization": {
+    "main_opset": {
+      "source": 21,
+      "optimized": 18
+    },
+    "qdq_domain": {
+      "source": "ai.onnx",
+      "optimized": "com.microsoft"
+    },
+    "reshape_allowzero_removed": true
+  },
+  "decision": {
+    "paddle_to_pytorch_change": false,
+    "representation": "Keep nn.Linear -> aten.linear for PT2E QAT",
+    "reason": "FullyConnected is a Pulsar2 frontend lowering for rank-3 Linear. A custom FC or Gemm would bypass the existing PT2E Linear annotator.",
+    "other_fusions_to_move": []
+  }
+}

@@ -57,7 +57,7 @@ class DBHead(nn.Module):
         params(dict): super parameters for build DB network
     """
 
-    def __init__(self, in_channels, k=50, **kwargs):
+    def __init__(self, in_channels, k=50, aux_in_channels=0, **kwargs):
         super(DBHead, self).__init__()
         self.k = k
         binarize_name_list = [
@@ -70,19 +70,63 @@ class DBHead(nn.Module):
         ]
         self.binarize = Head(in_channels, **kwargs)# binarize_name_list)
         self.thresh = Head(in_channels, **kwargs)#thresh_name_list)
+        self.aux_in_channels = int(aux_in_channels)
+        if self.aux_in_channels > 0:
+            self._aux_upsample_scale = {
+                "aux_p4": 4,
+                "aux_p3": 2,
+                "aux_p2": 1,
+            }
+            self.aux_binarize_p4 = Head(self.aux_in_channels, **kwargs)
+            self.aux_thresh_p4 = Head(self.aux_in_channels, **kwargs)
+            self.aux_binarize_p3 = Head(self.aux_in_channels, **kwargs)
+            self.aux_thresh_p3 = Head(self.aux_in_channels, **kwargs)
+            self.aux_binarize_p2 = Head(self.aux_in_channels, **kwargs)
+            self.aux_thresh_p2 = Head(self.aux_in_channels, **kwargs)
 
     def step_function(self, x, y):
-        return torch.reciprocal(1 + torch.exp(-self.k * (x - y)))
+        return torch.sigmoid(self.k * (x - y))
 
     def forward(self, x):
-        shrink_maps = self.binarize(x)
+        if isinstance(x, dict):
+            fuse = x["fuse"]
+            aux_features = {
+                key: x[key]
+                for key in ("aux_p4", "aux_p3", "aux_p2")
+                if key in x
+            }
+        else:
+            fuse = x
+            aux_features = {}
+
+        shrink_maps = self.binarize(fuse)
         if not self.training:
             return {'maps': shrink_maps}
 
-        threshold_maps = self.thresh(x)
+        threshold_maps = self.thresh(fuse)
         binary_maps = self.step_function(shrink_maps, threshold_maps)
         y = torch.cat([shrink_maps, threshold_maps, binary_maps], dim=1)
-        return {'maps': y}
+        result = {'maps': y}
+
+        if self.aux_in_channels > 0 and aux_features:
+            for key, feature in aux_features.items():
+                scale = self._aux_upsample_scale[key]
+                if scale > 1:
+                    feature = F.interpolate(
+                        feature,
+                        scale_factor=scale,
+                        mode="bilinear",
+                        align_corners=False,
+                    )
+                level = key[4:]
+                aux_shrink = getattr(self, "aux_binarize_" + level)(feature)
+                aux_threshold = getattr(self, "aux_thresh_" + level)(feature)
+                aux_binary = self.step_function(aux_shrink, aux_threshold)
+                result["aux_maps_" + level] = torch.cat(
+                    [aux_shrink, aux_threshold, aux_binary],
+                    dim=1,
+                )
+        return result
 
 class LocalModule(nn.Module):
     def __init__(self, in_c, mid_c, use_distance=True):

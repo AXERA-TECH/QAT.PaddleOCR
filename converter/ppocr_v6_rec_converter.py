@@ -7,6 +7,7 @@ import copy
 import numpy as np
 import torch
 
+from converter.weight_mapping import copy_paddle_state_dict_strict
 from pytorchocr.base_ocr_v20 import BaseOCRV20
 
 
@@ -61,95 +62,40 @@ class PPOCRv6RecConverter(BaseOCRV20):
         ):
             if name in para_state_dict:
                 shape = para_state_dict[name].shape
-                return shape[0] if name.endswith("embedding.weight") else shape[-1]
+                # Paddle's NRTR Transformer adds one vocabulary slot to the
+                # configured NRTRLabelDecode channel count.
+                vocab_size = shape[0] if name.endswith("embedding.weight") else shape[-1]
+                return vocab_size - 1
         return default_out_channels + 4
 
     def load_paddle_weights(self, paddle_weights):
         para_state_dict, opti_state_dict = paddle_weights
-
-        skipped = 0
-        for k, v in para_state_dict.items():
-            if self.is_gtc_weight(k):
-                skipped += 1
-                continue
-
-            ptname = self.map_paddle_weight_name(k)
-
-            try:
-                if k.endswith("qkv.weight") or k.endswith("qkv.bias"):
-                    self.load_qkv_weight(ptname, v)
-                    continue
-                if (
-                    k.endswith("fc1.weight")
-                    or k.endswith("fc2.weight")
-                    or k.endswith("fc.weight")
-                    or k.endswith("proj.weight")
-                    or k.endswith("out_proj.weight")
-                    or k.endswith("tgt_word_prj.weight")
-                    or k.endswith("before_gtc.1.fc.weight")
-                ):
-                    self.net.state_dict()[ptname].copy_(torch.Tensor(v.T.cpu().numpy()))
-                else:
-                    self.net.state_dict()[ptname].copy_(torch.Tensor(v.cpu().numpy()))
-
-            except Exception as e:
-                print("exception:")
-                pt_shape = (
-                    self.net.state_dict()[ptname].size()
-                    if ptname in self.net.state_dict()
-                    else "missing"
-                )
-                print("pytorch: {}, {}".format(ptname, pt_shape))
-                print("paddle: {}, {}".format(k, v.shape))
-                raise e
-
-        print("model is loaded.")
-        print("skipped {} GTC keys for inference-only export.".format(skipped))
-
-    @staticmethod
-    def is_gtc_weight(name):
-        return name.startswith(("head.before_gtc.", "head.gtc_head."))
-
-    @staticmethod
-    def map_paddle_weight_name(name):
-        name = name.replace("._mean", ".running_mean")
-        name = name.replace("._variance", ".running_var")
-        return name
-
-    def load_qkv_weight(self, ptname, value):
-        state_dict = self.net.state_dict()
-        prefix = (
-            ptname[: -len("qkv.weight")]
-            if ptname.endswith("qkv.weight")
-            else ptname[: -len("qkv.bias")]
+        report = copy_paddle_state_dict_strict(
+            self.net,
+            para_state_dict,
+            source_transpose_suffixes=(
+                "fc1.weight",
+                "fc2.weight",
+                "fc.weight",
+                "qkv.weight",
+                "proj.weight",
+                "out_proj.weight",
+                "q.weight",
+                "kv.weight",
+                "tgt_word_prj.weight",
+            ),
         )
-        # Check if the PyTorch model uses fused qkv (e.g., SVTR block) or
-        # split conv1/conv2/conv3 (legacy).
-        if ptname in state_dict:
-            # Fused qkv parameter — copy directly with transpose for weight
-            if ptname.endswith("qkv.weight"):
-                self.net.state_dict()[ptname].copy_(
-                    torch.Tensor(value.T.cpu().numpy())
-                )
-            else:
-                self.net.state_dict()[ptname].copy_(
-                    torch.Tensor(value.cpu().numpy())
-                )
-        elif ptname.endswith("qkv.weight"):
-            q, k, v = torch.chunk(torch.Tensor(value.T.cpu().numpy()), 3, dim=0)
-            for name, tensor in zip(
-                ("conv1.weight", "conv2.weight", "conv3.weight"), (q, k, v)
-            ):
-                target_name = prefix + name
-                if tensor.ndim == 2 and state_dict[target_name].ndim == 4:
-                    tensor = tensor.unsqueeze(-1).unsqueeze(-1)
-                state_dict[target_name].copy_(tensor)
-        else:
-            q, k, v = torch.chunk(torch.Tensor(value.cpu().numpy()), 3, dim=0)
-            for name, tensor in zip(
-                ("conv1.bias", "conv2.bias", "conv3.bias"), (q, k, v)
-            ):
-                state_dict[prefix + name].copy_(tensor)
+        print(
+            "strict weight mapping: source={}, target={}, copied={}, "
+            "allowed_missing={}, ignored_source={}".format(
+                report.source_count,
+                report.target_count,
+                report.copied_count,
+                len(report.allowed_missing_targets),
+                report.ignored_source_count,
+            )
+        )
+        print("model is loaded.")
 
     def get_inference_state_dict(self):
         skip_prefixes = ("head.before_gtc.", "head.gtc_head.")
@@ -223,9 +169,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--save_mode",
         type=str,
-        choices=["inference"],
-        default="inference",
-        help="Deprecated compatibility option. PP-OCRv6 rec now always exports inference-only weights.",
+        choices=["full", "inference"],
+        default="full",
+        help="Export the full CTC+NRTR training state by default.",
+    )
+    parser.add_argument(
+        "--output",
+        default="weights/ptocr_v6_small_rec_full.pth",
+        help="Output path for the converted PyTorch state dict.",
     )
     args = parser.parse_args()
 
@@ -254,8 +205,11 @@ if __name__ == "__main__":
     )
 
     # save
-    save_basename = os.path.basename(os.path.abspath(args.src_model_path))
-    save_name = "ptocr_v6_rec_{}.pth".format(save_basename.split(".")[0])
-    converter.save_inference_pytorch_weights(save_name)
+    output_dir = os.path.dirname(os.path.abspath(args.output))
+    os.makedirs(output_dir, exist_ok=True)
+    if args.save_mode == "inference":
+        converter.save_inference_pytorch_weights(args.output)
+    else:
+        converter.save_pytorch_weights(args.output)
 
     print("done.")

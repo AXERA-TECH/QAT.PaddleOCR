@@ -1,0 +1,15 @@
+{
+  "batch_size": 2,
+  "device": "cpu",
+  "eager_vs_reparameterized": {
+    "count": 1470800,
+    "mae": 0.000151689285461821,
+    "max_abs": 0.002536773681640625,
+    "p99": 0.0014236450195312528,
+    "p99_sample_count": 4096,
+    "worst_sample_index": 0,
+    "worst_sample_max_abs": 0.002536773681640625
+  },
+  "sample_count": 2,
+  "task": "rec"
+}

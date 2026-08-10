@@ -1,11 +1,11 @@
 # https://zhuanlan.zhihu.com/p/335753926
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from collections import OrderedDict
 import numpy as np
 import cv2
 import torch
 from pytorchocr.base_ocr_v20 import BaseOCRV20
+from converter.weight_mapping import copy_paddle_state_dict_strict
 
 def print_cmp(inp, name=None):
     print('{}: shape-{}, sum: {}, mean: {}, max: {}, min: {}'.format(name, inp.shape,
@@ -15,57 +15,38 @@ def print_cmp(inp, name=None):
 class PPOCRv5RecConverter(BaseOCRV20):
     def __init__(self, config, paddle_pretrained_model_path, **kwargs):
         para_state_dict, opti_state_dict = self.read_paddle_weights(paddle_pretrained_model_path)
-        para_state_dict = self.del_invalid_state_dict(para_state_dict)
-        out_channels = list(para_state_dict.values())[-1].shape[0]
-        print('out_channels: ', out_channels)
-        print(type(kwargs), kwargs)
-        kwargs['out_channels'] = out_channels
         super(PPOCRv5RecConverter, self).__init__(config, **kwargs)
         self.load_paddle_weights([para_state_dict, opti_state_dict])
         print('model is loaded: {}'.format(paddle_pretrained_model_path))
         self.net.eval()
 
-
-    def del_invalid_state_dict(self, para_state_dict):
-        new_state_dict = OrderedDict()
-        for i, (k,v) in enumerate(para_state_dict.items()):
-            if k.startswith('head.gtc_head.'):
-                continue
-
-            elif k.startswith('head.before_gtc'):
-                continue
-
-            else:
-                new_state_dict[k] = v
-        return new_state_dict
-
-
     def load_paddle_weights(self, paddle_weights):
         para_state_dict, opti_state_dict = paddle_weights
-
-        # [print('paddle: {} ---- {}'.format(k, v.shape)) for k, v in para_state_dict.items()]
-        # [print('pytorch: {} ---- {}'.format(k, v.shape)) for k, v in self.net.state_dict().items()]
-        # exit()
-
-        for k,v in para_state_dict.items():
-            ptname = k
-            ptname = ptname.replace('._mean', '.running_mean')
-            ptname = ptname.replace('._variance','.running_var')
-
-            try:
-                if k.endswith('fc1.weight') or k.endswith('fc2.weight') \
-                        or k.endswith('fc.weight') or k.endswith('qkv.weight') \
-                        or k.endswith('proj.weight'):
-                    self.net.state_dict()[ptname].copy_(torch.Tensor(v.T.cpu().numpy()))
-                else:
-                    self.net.state_dict()[ptname].copy_(torch.Tensor(v.cpu().numpy()))
-
-            except Exception as e:
-                print('exception:')
-                print('pytorch: {}, {}'.format(ptname, self.net.state_dict()[k].size()))
-                print('paddle: {}, {}'.format(k, v.shape))
-                raise e
-
+        report = copy_paddle_state_dict_strict(
+            self.net,
+            para_state_dict,
+            source_transpose_suffixes=(
+                'fc1.weight',
+                'fc2.weight',
+                'fc.weight',
+                'qkv.weight',
+                'proj.weight',
+                'out_proj.weight',
+                'q.weight',
+                'kv.weight',
+                'tgt_word_prj.weight',
+            ),
+        )
+        print(
+            'strict weight mapping: source={}, target={}, copied={}, '
+            'allowed_missing={}, ignored_source={}'.format(
+                report.source_count,
+                report.target_count,
+                report.copied_count,
+                len(report.allowed_missing_targets),
+                report.ignored_source_count,
+            )
+        )
         print('model is loaded.')
 
 def read_network_config_from_yaml(yaml_path):
@@ -104,6 +85,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--yaml_path", type=str, help='Assign the yaml path of network configuration', default=None)
     parser.add_argument("--src_model_path", type=str, help='Assign the paddleOCR trained model(best_accuracy)')
+    parser.add_argument(
+        "--output",
+        default="weights/ptocr_v5_mobile_rec_full.pth",
+        help="Output path for the complete CTC+NRTR PyTorch state dict.",
+    )
     args = parser.parse_args()
 
     yaml_path = args.yaml_path
@@ -126,7 +112,7 @@ if __name__ == '__main__':
     # print('out:', np.sum(out), np.mean(out), np.max(out), np.min(out))
 
     # save
-    save_basename = os.path.basename(os.path.abspath(args.src_model_path))
-    save_name = 'ptocr_v5_{}.pth'.format(save_basename.split('PP-OCRv5_')[-1].split('_pretrained')[0])
-    converter.save_pytorch_weights(save_name)
+    output_dir = os.path.dirname(os.path.abspath(args.output))
+    os.makedirs(output_dir, exist_ok=True)
+    converter.save_pytorch_weights(args.output)
     print('done.')

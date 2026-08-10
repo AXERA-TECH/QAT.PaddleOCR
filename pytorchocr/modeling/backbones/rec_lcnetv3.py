@@ -67,6 +67,9 @@ class LearnableAffineBlock(nn.Module):
         super().__init__()
         self.scale = nn.Parameter(torch.Tensor([scale_value]))
         self.bias = nn.Parameter(torch.Tensor([bias_value]))
+        paddle_lr_multiplier = float(lr_mult) * float(lab_lr)
+        self.scale._paddle_lr_multiplier = paddle_lr_multiplier
+        self.bias._paddle_lr_multiplier = paddle_lr_multiplier
 
     def forward(self, x):
         return self.scale * x + self.bias
@@ -93,11 +96,36 @@ class ConvBNLayer(nn.Module):
         self.bn = nn.BatchNorm2d(
             out_channels,
         )
+        self.bn.weight._paddle_weight_decay = 0.0
+        self.bn.bias._paddle_weight_decay = 0.0
+        self.is_repped = False
 
     def forward(self, x):
         x = self.conv(x)
-        x = self.bn(x)
+        if not self.is_repped:
+            x = self.bn(x)
         return x
+
+    @torch.no_grad()
+    def rep(self):
+        if self.is_repped:
+            return
+        conv, bn = self.conv, self.bn
+        scale = bn.weight / torch.sqrt(bn.running_var + bn.eps)
+        fused = nn.Conv2d(
+            conv.in_channels,
+            conv.out_channels,
+            conv.kernel_size,
+            conv.stride,
+            padding=conv.padding,
+            dilation=conv.dilation,
+            groups=conv.groups,
+            bias=True,
+        ).to(device=conv.weight.device, dtype=conv.weight.dtype)
+        fused.weight.copy_(conv.weight * scale[:, None, None, None])
+        fused.bias.copy_(bn.bias - bn.running_mean * scale)
+        self.conv = fused
+        self.is_repped = True
 
 
 class Act(nn.Module):
@@ -238,6 +266,7 @@ class LearnableRepLayer(nn.Module):
                 kernel_value = torch.zeros(
                     (self.in_channels, input_dim, self.kernel_size,
                      self.kernel_size),
+                    device=branch.weight.device,
                     dtype=branch.weight.dtype)
                 for i in range(self.in_channels):
                     kernel_value[i, i % input_dim, self.kernel_size // 2,
@@ -324,6 +353,10 @@ class LCNetV3Block(nn.Module):
             x = self.se(x)
         x = self.pw_conv(x)
         return x
+
+    def rep(self):
+        self.dw_conv.rep()
+        self.pw_conv.rep()
 
 
 class PPLCNetV3(nn.Module):
@@ -472,3 +505,13 @@ class PPLCNetV3(nn.Module):
         else:
             x = F.avg_pool2d(x, [3, 2])
         return x
+
+    def rep(self):
+        """Fold all ConvBN branches before PT2E capture."""
+        if getattr(self, "is_repped", False):
+            return
+        self.conv1.rep()
+        for stage_name in ("blocks2", "blocks3", "blocks4", "blocks5", "blocks6"):
+            for block in getattr(self, stage_name):
+                block.rep()
+        self.is_repped = True

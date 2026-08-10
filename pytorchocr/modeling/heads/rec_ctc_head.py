@@ -28,6 +28,8 @@ class CTCHead(nn.Module):
                 in_channels,
                 out_channels,
                 bias=True,)
+            self.fc.weight._paddle_weight_decay = float(fc_decay)
+            self.fc.bias._paddle_weight_decay = float(fc_decay)
         else:
             self.fc1 = nn.Linear(
                 in_channels,
@@ -39,6 +41,13 @@ class CTCHead(nn.Module):
                 out_channels,
                 bias=True,
             )
+            for parameter in (
+                self.fc1.weight,
+                self.fc1.bias,
+                self.fc2.weight,
+                self.fc2.bias,
+            ):
+                parameter._paddle_weight_decay = float(fc_decay)
 
         self.out_channels = out_channels
         self.mid_channels = mid_channels

@@ -1,0 +1,4 @@
+interface:
+  display_name: "PP-OCRv5 Rec Pulsar2 配置"
+  short_description: "从 v5-rec QuantONNX 生成并校验 Pulsar2 配置"
+  default_prompt: "Use $ppocrv5-rec-pulsar2-config to generate and validate a Pulsar2 config for this PP-OCRv5 recognition QuantONNX."

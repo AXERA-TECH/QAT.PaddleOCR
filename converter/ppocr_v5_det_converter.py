@@ -5,6 +5,7 @@ import numpy as np
 import cv2
 import torch
 from pytorchocr.base_ocr_v20 import BaseOCRV20
+from converter.weight_mapping import copy_paddle_state_dict_strict
 
 def print_cmp(inp, name=None):
     print('{}: shape-{}, sum: {}, mean: {}, max: {}, min: {}'.format(name, inp.shape,
@@ -27,27 +28,16 @@ class PPOCRv5DetConverter(BaseOCRV20):
             import paddle
             para_state_dict = paddle.load(weights_path)
 
-        for k,v in para_state_dict.items():
-
-            if k.endswith('num_batches_tracked'):
-                continue
-
-            ptname = k
-            ptname = ptname.replace('._mean', '.running_mean')
-            ptname = ptname.replace('._variance', '.running_var')
-
-            # if 'backbone.conv1.hardswish.scale' in k:
-            #     continue
-            #
-            # if 'backbone.conv1.hardswish.bias' in k:
-            #     continue
-
-            try:
-                self.net.state_dict()[ptname].copy_(torch.Tensor(v.cpu().numpy()))
-            except Exception as e:
-                print('pytorch: {}, {}'.format(ptname, self.net.state_dict()[ptname].size()))
-                print('paddle: {}, {}'.format(k, v.shape))
-                raise e
+        report = copy_paddle_state_dict_strict(self.net, para_state_dict)
+        print(
+            'strict weight mapping: source={}, target={}, copied={}, '
+            'allowed_missing={}'.format(
+                report.source_count,
+                report.target_count,
+                report.copied_count,
+                len(report.allowed_missing_targets),
+            )
+        )
         print('model is loaded: {}'.format(weights_path))
 
 def read_network_config_from_yaml(yaml_path):

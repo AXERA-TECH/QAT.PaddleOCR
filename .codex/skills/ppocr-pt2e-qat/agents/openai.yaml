@@ -1,0 +1,4 @@
+interface:
+  display_name: "PP-OCR PT2E QAT"
+  short_description: "Train, export, and validate PP-OCR Axera QAT"
+  default_prompt: "Use $ppocr-pt2e-qat to run and validate a PP-OCR PT2E QAT workflow."

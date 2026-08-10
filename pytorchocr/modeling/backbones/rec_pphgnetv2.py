@@ -989,6 +989,7 @@ class ConvBNAct(TheseusLayer):
         super().__init__()
         self.use_act = use_act
         self.use_lab = use_lab
+        self.is_repped = False
         self.conv = nn.Conv2d(
             in_channels,
             out_channels,
@@ -1008,12 +1009,40 @@ class ConvBNAct(TheseusLayer):
 
     def forward(self, x):
         x = self.conv(x)
-        x = self.bn(x)
+        if not self.is_repped:
+            x = self.bn(x)
         if self.use_act:
             x = self.act(x)
             if self.use_lab:
                 x = self.lab(x)
         return x
+
+    @torch.no_grad()
+    def rep(self):
+        """Fuse the Conv2d and BatchNorm2d for the deployment/QAT graph."""
+        if self.is_repped:
+            return
+        conv, bn = self.conv, self.bn
+        inv_std = torch.rsqrt(bn.running_var + bn.eps)
+        fused_weight = conv.weight * (bn.weight * inv_std).reshape(-1, 1, 1, 1)
+        fused_bias = bn.bias - bn.running_mean * bn.weight * inv_std
+
+        fused_conv = nn.Conv2d(
+            conv.in_channels,
+            conv.out_channels,
+            conv.kernel_size,
+            stride=conv.stride,
+            padding=conv.padding,
+            dilation=conv.dilation,
+            groups=conv.groups,
+            bias=True,
+            padding_mode=conv.padding_mode,
+        )
+        fused_conv.weight.copy_(fused_weight)
+        fused_conv.bias.copy_(fused_bias)
+        self.conv = fused_conv
+        del self.bn
+        self.is_repped = True
 
 
 class LightConvBNAct(TheseusLayer):
@@ -1060,6 +1089,11 @@ class LightConvBNAct(TheseusLayer):
         x = self.conv1(x)
         x = self.conv2(x)
         return x
+
+    @torch.no_grad()
+    def rep(self):
+        self.conv1.rep()
+        self.conv2.rep()
 
 
 class PaddingSameAsPaddleMaxPool2d(torch.nn.Module):
@@ -1157,6 +1191,11 @@ class StemBlock(TheseusLayer):
 
         return x
 
+    @torch.no_grad()
+    def rep(self):
+        for layer in (self.stem1, self.stem2a, self.stem2b, self.stem3, self.stem4):
+            layer.rep()
+
 
 class HGV2_Block(TheseusLayer):
     """
@@ -1237,6 +1276,13 @@ class HGV2_Block(TheseusLayer):
             x += identity
         return x
 
+    @torch.no_grad()
+    def rep(self):
+        for layer in self.layers:
+            layer.rep()
+        self.aggregation_squeeze_conv.rep()
+        self.aggregation_excitation_conv.rep()
+
 
 class HGV2_Stage(TheseusLayer):
     """
@@ -1306,6 +1352,13 @@ class HGV2_Stage(TheseusLayer):
             x = self.downsample(x)
         x = self.blocks(x)
         return x
+
+    @torch.no_grad()
+    def rep(self):
+        if self.is_downsample:
+            self.downsample.rep()
+        for block in self.blocks:
+            block.rep()
 
 
 class PPHGNetV2(TheseusLayer):
@@ -1429,6 +1482,14 @@ class PPHGNetV2(TheseusLayer):
                 nn.init.zeros_(m.bias)
             elif isinstance(m, nn.Linear):
                 nn.init.zeros_(m.bias)
+
+    @torch.no_grad()
+    def rep(self):
+        """Fuse all Conv-BN pairs before PT2E capture."""
+        self.stem.rep()
+        for stage in self.stages:
+            stage.rep()
+        return self
 
     def forward(self, x):
         x = self.stem(x)

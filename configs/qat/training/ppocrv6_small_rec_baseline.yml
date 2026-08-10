@@ -1,0 +1,19 @@
+name: ppocrv6-small-rec-qat-baseline
+task: rec
+model_name: PP-OCRv6_small_rec
+qat: true
+qat_config: ../ppocrv6_small_rec_u8s8.json
+training:
+  epochs: 50
+  batch_size: 64
+  workers: 8
+  learning_rate: 0.00002
+  image_shape: [3, 48, 320]
+  augmentation: none
+  multi_scale_training: false
+  amp: false
+  reparameterize: true
+  warmup_epochs: 2
+  lr_final_factor: 0.1
+  observer_freeze_epoch: null
+  save_every: 1

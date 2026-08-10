@@ -254,6 +254,9 @@ class ConvBNAct(nn.Module):
             bias=False,
         )
         self.bn = nn.BatchNorm2d(out_channels)
+        # Paddle ConvBNAct explicitly uses L2Decay(0.0) for BN affine params.
+        self.bn.weight._paddle_weight_decay = 0.0
+        self.bn.bias._paddle_weight_decay = 0.0
         if self.use_act:
             self.act = nn.ReLU(inplace=True)
 
@@ -276,7 +279,7 @@ class ConvBNAct(nn.Module):
         fused_b = bn.bias - bn.running_mean * bn.weight / (bn.running_var + bn.eps) ** 0.5
         # Handle 'same' padding
         if isinstance(c.padding, str):
-            padding = c.padding[0] if isinstance(c.padding, tuple) else (c.kernel_size[0] - 1) // 2
+            padding = c.padding
         else:
             padding = c.padding
         m = nn.Conv2d(

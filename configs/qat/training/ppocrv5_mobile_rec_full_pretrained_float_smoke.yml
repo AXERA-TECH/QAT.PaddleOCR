@@ -1,0 +1,25 @@
+name: ppocrv5_mobile_rec_full_pretrained_float_smoke
+task: rec
+model_name: PP-OCRv5_mobile_rec
+qat: false
+training:
+  epochs: 1
+  batch_size: 2
+  workers: 0
+  learning_rate: 0.00002
+  weight_decay: 0.00003
+  image_shape: [3, 48, 320]
+  augmentation: none
+  multi_scale_training: false
+  amp: false
+  grad_clip_norm: 5.0
+  observer_freeze_epoch: null
+  save_every: 1
+  reparameterize: false
+  warmup_epochs: 0
+  lr_final_factor: 1.0
+  seed: 20260805
+  rec_graph: pretrained_train
+  rec_ctc_backbone_grad: false
+  lab_lr_multiplier: 0.1
+  ctc_fc_weight_decay: 0.00001

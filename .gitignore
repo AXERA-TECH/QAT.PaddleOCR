@@ -133,6 +133,7 @@ dmypy.json
 
 # pth
 *.pth
+*.pdparams
 
 # idea
 *.idea
@@ -147,3 +148,10 @@ det_models*
 rec_models*
 *副本*
 *测试数据*
+
+# Local QAT assets and external references
+cache/
+exports/
+references/
+runs/
+weights/

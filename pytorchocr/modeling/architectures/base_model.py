@@ -20,6 +20,7 @@ class BaseModel(nn.Module):
 
         in_channels = config.get('in_channels', 3)
         model_type = config['model_type']
+        self.model_type = model_type
         # build transfrom,
         # for rec, transfrom can be TPS,None
         # for det and cls, transfrom shoule to be None,
@@ -101,6 +102,13 @@ class BaseModel(nn.Module):
             x = self.neck(x)
             if isinstance(x, dict):
                 y.update(x)
+                if "fuse" in x:
+                    keep_aux_features = (
+                        self.model_type == "det"
+                        and getattr(self.head, "aux_in_channels", 0) > 0
+                    )
+                    if not keep_aux_features:
+                        x = x["fuse"]
             else:
                 y["neck_out"] = x
             final_name = "neck_out"
@@ -126,3 +134,18 @@ class BaseModel(nn.Module):
                 return {final_name: x}
         else:
             return x
+
+    def set_validation_mode(self):
+        self.eval()
+        if getattr(self, "graph_role", None) == "pretrained_train":
+            if self.model_type == "rec":
+                # MultiHead must select its eval-only CTC output while CTCHead
+                # itself stays in training mode to return raw logits, not Softmax.
+                self.head.ctc_head.training = True
+            elif self.model_type == "det":
+                # Keep DBHead's three-map training output while all child BN
+                # layers remain in inference mode.
+                self.head.training = True
+                if getattr(self.head, "aux_in_channels", 0) > 0:
+                    self.neck.training = True
+        return self

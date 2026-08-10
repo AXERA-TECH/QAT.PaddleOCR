@@ -1,9 +1,9 @@
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from collections import OrderedDict
 import numpy as np
 import cv2
 import torch
+from converter.weight_mapping import copy_paddle_state_dict_strict
 from pytorchocr.base_ocr_v20 import BaseOCRV20
 
 
@@ -12,16 +12,6 @@ class PPOCRv6DetConverter(BaseOCRV20):
         super(PPOCRv6DetConverter, self).__init__(config, **kwargs)
         self.load_paddle_weights(paddle_pretrained_model_path)
         self.net.eval()
-
-    def del_invalid_state_dict(self, para_state_dict):
-        """Remove auxiliary head parameters that only exist during training."""
-        new_state_dict = OrderedDict()
-        for k, v in para_state_dict.items():
-            # Skip auxiliary prediction heads (aux_binarize_p*, aux_thresh_p*)
-            if 'aux_binarize_' in k or 'aux_thresh_' in k:
-                continue
-            new_state_dict[k] = v
-        return new_state_dict
 
     def load_paddle_weights(self, weights_path):
         print('paddle weights loading...')
@@ -52,23 +42,17 @@ class PPOCRv6DetConverter(BaseOCRV20):
                 sys.modules['numpy._core.fromnumeric'] = numpy.core.fromnumeric
             para_state_dict = paddle.load(weights_path)
 
-        para_state_dict = self.del_invalid_state_dict(para_state_dict)
-
-        for k, v in para_state_dict.items():
-
-            if k.endswith('num_batches_tracked'):
-                continue
-
-            ptname = k
-            ptname = ptname.replace('._mean', '.running_mean')
-            ptname = ptname.replace('._variance', '.running_var')
-
-            try:
-                self.net.state_dict()[ptname].copy_(torch.Tensor(v.cpu().numpy()))
-            except Exception as e:
-                print('pytorch: {}, {}'.format(ptname, self.net.state_dict()[ptname].size()))
-                print('paddle: {}, {}'.format(k, v.shape))
-                raise e
+        report = copy_paddle_state_dict_strict(self.net, para_state_dict)
+        print(
+            'strict weight mapping: source={}, target={}, copied={}, '
+            'allowed_missing={}, ignored_source={}'.format(
+                report.source_count,
+                report.target_count,
+                report.copied_count,
+                len(report.allowed_missing_targets),
+                report.ignored_source_count,
+            )
+        )
         print('model is loaded: {}'.format(weights_path))
 
 
@@ -90,6 +74,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--yaml_path", type=str, help='Assign the yaml path of network configuration', default=None)
     parser.add_argument("--src_model_path", type=str, help='Assign the paddleOCR trained model(best_accuracy)')
+    parser.add_argument(
+        "--output",
+        default="weights/ptocr_v6_small_det_full.pth",
+        help="Output path for the complete main+auxiliary training state dict.",
+    )
     args = parser.parse_args()
 
     yaml_path = args.yaml_path
@@ -117,8 +106,8 @@ if __name__ == '__main__':
         np.sum(out), np.mean(out), np.max(out), np.min(out)))
 
     # save
-    save_basename = os.path.basename(os.path.abspath(args.src_model_path))
-    save_name = 'ptocr_v6_det_{}.pth'.format(save_basename.split('.')[0])
-    converter.save_pytorch_weights(save_name)
+    output_dir = os.path.dirname(os.path.abspath(args.output))
+    os.makedirs(output_dir, exist_ok=True)
+    converter.save_pytorch_weights(args.output)
 
     print('done.')

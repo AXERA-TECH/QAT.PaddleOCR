@@ -110,7 +110,11 @@ class EncoderWithSVTR(nn.Module):
             hidden_dims, in_channels, kernel_size=1, act='swish')
         # last conv-nxn, the input is concat of input tensor and conv3 output tensor
         self.conv4 = ConvBNLayer(
-            2 * in_channels, in_channels // 8, padding=1, act='swish')
+            2 * in_channels,
+            in_channels // 8,
+            kernel_size=kernel_size,
+            padding=[kernel_size[0] // 2, kernel_size[1] // 2],
+            act='swish')
 
         self.conv1x1 = ConvBNLayer(
             in_channels // 8, dims, kernel_size=1, act='swish')
@@ -141,8 +145,7 @@ class EncoderWithSVTR(nn.Module):
     def forward(self, x):
         # for use guide
         if self.use_guide:
-            z = x.clone()
-            z.stop_gradient = True
+            z = x.detach()
         else:
             z = x
         # for short cut

@@ -1,0 +1,2856 @@
+{
+  "checkpoint_contract": "/home/heqi/project/PaddleOCR/route2/PaddleOCR2Pytorch-QAT/output/icdar2015_ppocrv5_mobile_rec_native_silu_qat/epoch_0001.pt",
+  "device": "cuda:2",
+  "seed": 20260805,
+  "train_samples": 4468,
+  "eval_samples": 256,
+  "batch_size": 64,
+  "calibration_samples": 32,
+  "calibration_batch_size": 8,
+  "calibration_batches": 4,
+  "calibration": {
+    "fake_on": {
+      "fake_quant_enabled": true,
+      "loss": 8.021086156368256,
+      "acc": 0.4140625,
+      "norm_edit_dis": 0.6621616556186869,
+      "blank_argmax_fraction": 0.89287109375,
+      "mean_predicted_length": 4.17578125,
+      "mean_target_length": 5.16015625,
+      "logits_mean": -10.506813468860484,
+      "logits_std": 3.5811805512932238,
+      "logits_abs_max": 36.6120491027832
+    },
+    "fake_off": {
+      "fake_quant_enabled": true,
+      "loss": 23.234010219573975,
+      "acc": 0.015625,
+      "norm_edit_dis": 0.07778341450216453,
+      "blank_argmax_fraction": 0.985546875,
+      "mean_predicted_length": 0.5703125,
+      "mean_target_length": 5.16015625,
+      "logits_mean": -9.198118031003535,
+      "logits_std": 2.5742239683254176,
+      "logits_abs_max": 33.269718170166016
+    }
+  },
+  "modes": {
+    "train_fake_on": {
+      "update_batches": 69,
+      "update_mode": "train",
+      "fake_quant_during_update": true,
+      "fake_on": {
+        "fake_quant_enabled": true,
+        "loss": 88.48290729522705,
+        "acc": 0.0,
+        "norm_edit_dis": 0.002180989583333237,
+        "blank_argmax_fraction": 0.9111328125,
+        "mean_predicted_length": 2.88671875,
+        "mean_target_length": 5.16015625,
+        "logits_mean": -22.57644819146043,
+        "logits_std": 10.577403941429264,
+        "logits_abs_max": 96.60391998291016
+      },
+      "observer_only_fake_on": {
+        "fake_quant_enabled": true,
+        "loss": 63.89790153503418,
+        "acc": 0.0,
+        "norm_edit_dis": 0.0,
+        "blank_argmax_fraction": 0.999609375,
+        "mean_predicted_length": 0.015625,
+        "mean_target_length": 5.16015625,
+        "logits_mean": -19.282767881425073,
+        "logits_std": 5.1711625500021015,
+        "logits_abs_max": 69.8957748413086
+      },
+      "non_observer_buffer_drift": [
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1.norm.running_var",
+          "max_abs": 11364.637939453125
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv4.norm.running_var",
+          "max_abs": 459.33575439453125
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1.norm.running_mean",
+          "max_abs": 123.52595901489258
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv2.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv3.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv4.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1x1.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv4.norm.running_mean",
+          "max_abs": 40.81424903869629
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv2.norm.running_var",
+          "max_abs": 6.288663864135742
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv3.norm.running_mean",
+          "max_abs": 0.28856274485588074
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv2.norm.running_mean",
+          "max_abs": 0.21085894107818604
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv3.norm.running_var",
+          "max_abs": 0.19774934649467468
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1x1.norm.running_var",
+          "max_abs": 0.06720747239887714
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1x1.norm.running_mean",
+          "max_abs": 0.0026118457317352295
+        }
+      ],
+      "top_scale_expansion_vs_fake_off_calibration": [
+        {
+          "observer": "activation_post_process_289",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.03975210711359978,
+          "updated_scale": 0.31092068552970886,
+          "scale_ratio": 7.82148942799911,
+          "sites": [
+            {
+              "producer": "adaptive_avg_pool2d_1",
+              "operator": "aten.adaptive_avg_pool2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___1___se_avg_pool', <class 'torch.nn.modules.pooling.AdaptiveAvgPool2d'>)]",
+              "module_path": "model.backbone.blocks6.1.se.avg_pool",
+              "users": [
+                "conv2d_26"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_264",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.034687358886003494,
+          "updated_scale": 0.22924073040485382,
+          "scale_ratio": 6.608768662907728,
+          "sites": [
+            {
+              "producer": "mul_42",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_42', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks6.0.se",
+              "users": [
+                "conv2d_24"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_252",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.36098065972328186,
+          "updated_scale": 1.1895455121994019,
+          "scale_ratio": 3.2953164668469377,
+          "sites": [
+            {
+              "producer": "hardswish__20",
+              "operator": "aten.hardswish_.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___0___dw_conv_act_act', <class 'torch.nn.modules.activation.Hardswish'>)]",
+              "module_path": "model.backbone.blocks6.0.dw_conv.act.act",
+              "users": [
+                "mul_41"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_253",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.3870774805545807,
+          "updated_scale": 1.2746946811676025,
+          "scale_ratio": 3.293125395311809,
+          "sites": [
+            {
+              "producer": "mul_41",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_41', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks6.0.dw_conv.act.lab",
+              "users": [
+                "add_41"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_255",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.3870775103569031,
+          "updated_scale": 1.2744743824005127,
+          "scale_ratio": 3.292556008292472,
+          "sites": [
+            {
+              "producer": "add_41",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_41', <built-in function add>)]",
+              "module_path": "model.backbone.blocks6.0.dw_conv.act.lab",
+              "users": [
+                "adaptive_avg_pool2d",
+                "mul_42"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_279",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 1.0625377893447876,
+          "updated_scale": 3.1179540157318115,
+          "scale_ratio": 2.9344405883714435,
+          "sites": [
+            {
+              "producer": "conv2d_25",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___1___dw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks6.1.dw_conv.reparam_conv",
+              "users": [
+                "mul_45"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_281",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 1.1105695962905884,
+          "updated_scale": 3.2572765350341797,
+          "scale_ratio": 2.93297830763043,
+          "sites": [
+            {
+              "producer": "mul_45",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_45', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks6.1.dw_conv.lab",
+              "users": [
+                "add_44"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_283",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 1.110569715499878,
+          "updated_scale": 3.256545305252075,
+          "scale_ratio": 2.932319565175855,
+          "sites": [
+            {
+              "producer": "add_44",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_44', <built-in function add>)]",
+              "module_path": "model.backbone.blocks6.1.dw_conv.lab",
+              "users": [
+                "hardswish__22"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_288",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 1.0570486783981323,
+          "updated_scale": 3.0879459381103516,
+          "scale_ratio": 2.9212901933616453,
+          "sites": [
+            {
+              "producer": "add_45",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_45', <built-in function add>)]",
+              "module_path": "model.backbone.blocks6.1.dw_conv.act.lab",
+              "users": [
+                "adaptive_avg_pool2d_1",
+                "mul_47"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_286",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 1.0570485591888428,
+          "updated_scale": 3.087857246398926,
+          "scale_ratio": 2.9212066177626537,
+          "sites": [
+            {
+              "producer": "mul_46",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_46', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks6.1.dw_conv.act.lab",
+              "users": [
+                "add_45"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_285",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.7274185419082642,
+          "updated_scale": 2.1248440742492676,
+          "scale_ratio": 2.9210749408106715,
+          "sites": [
+            {
+              "producer": "hardswish__22",
+              "operator": "aten.hardswish_.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___1___dw_conv_act_act', <class 'torch.nn.modules.activation.Hardswish'>)]",
+              "module_path": "model.backbone.blocks6.1.dw_conv.act.act",
+              "users": [
+                "mul_46"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_3",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.03166275843977928,
+          "updated_scale": 0.09195081144571304,
+          "scale_ratio": 2.9040682485260443,
+          "sites": [
+            {
+              "producer": "conv2d",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('l__self___model_backbone_conv1_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.conv1.conv",
+              "users": [
+                "conv2d_1"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_246",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.6431519985198975,
+          "updated_scale": 1.8506429195404053,
+          "scale_ratio": 2.8774580873562368,
+          "sites": [
+            {
+              "producer": "conv2d_21",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___0___dw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks6.0.dw_conv.reparam_conv",
+              "users": [
+                "mul_40"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_248",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.5156201124191284,
+          "updated_scale": 1.481340765953064,
+          "scale_ratio": 2.8729305360162853,
+          "sites": [
+            {
+              "producer": "mul_40",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_40', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks6.0.dw_conv.lab",
+              "users": [
+                "add_40"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_250",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.5156201124191284,
+          "updated_scale": 1.4809024333953857,
+          "scale_ratio": 2.8720804284523624,
+          "sites": [
+            {
+              "producer": "add_40",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_40', <built-in function add>)]",
+              "module_path": "model.backbone.blocks6.0.dw_conv.lab",
+              "users": [
+                "hardswish__20"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_267",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.2042153775691986,
+          "updated_scale": 0.4961484968662262,
+          "scale_ratio": 2.4295354383785606,
+          "sites": [
+            {
+              "producer": "conv2d_24",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___0___pw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks6.0.pw_conv.reparam_conv",
+              "users": [
+                "mul_43"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_269",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.10988209396600723,
+          "updated_scale": 0.266191303730011,
+          "scale_ratio": 2.4225175742679155,
+          "sites": [
+            {
+              "producer": "mul_43",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_43', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks6.0.pw_conv.lab",
+              "users": [
+                "add_42"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_271",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.10988208651542664,
+          "updated_scale": 0.26594915986061096,
+          "scale_ratio": 2.4203140684198208,
+          "sites": [
+            {
+              "producer": "add_42",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_42', <built-in function add>)]",
+              "module_path": "model.backbone.blocks6.0.pw_conv.lab",
+              "users": [
+                "hardswish__21"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_418",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.024761395528912544,
+          "updated_scale": 0.0590885728597641,
+          "scale_ratio": 2.3863183636305783,
+          "sites": [
+            {
+              "producer": "linear_5",
+              "operator": "aten.linear.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_svtr_block_1_mixer_proj', <class 'torch.nn.modules.linear.Linear'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.1.mixer.proj",
+              "users": [
+                "dropout_5"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_419",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.024761395528912544,
+          "updated_scale": 0.0590885728597641,
+          "scale_ratio": 2.3863183636305783,
+          "sites": [
+            {
+              "producer": "dropout_5",
+              "operator": "aten.dropout.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_svtr_block_1_mixer_proj_drop', <class 'torch.nn.modules.dropout.Dropout'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.1.mixer.proj_drop",
+              "users": [
+                "add_58"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_361",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.027239186689257622,
+          "updated_scale": 0.0617988184094429,
+          "scale_ratio": 2.2687468283997863,
+          "sites": [
+            {
+              "producer": "batch_norm_5",
+              "operator": "aten.batch_norm.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_conv1_norm', <class 'torch.nn.modules.batchnorm.BatchNorm2d'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.conv1.norm",
+              "users": [
+                "silu_"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_387",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.010359450243413448,
+          "updated_scale": 0.022990386933088303,
+          "scale_ratio": 2.2192670839560833,
+          "sites": [
+            {
+              "producer": "linear_1",
+              "operator": "aten.linear.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_svtr_block_0_mixer_proj', <class 'torch.nn.modules.linear.Linear'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.0.mixer.proj",
+              "users": [
+                "dropout_1"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_388",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.010359450243413448,
+          "updated_scale": 0.022990386933088303,
+          "scale_ratio": 2.2192670839560833,
+          "sites": [
+            {
+              "producer": "dropout_1",
+              "operator": "aten.dropout.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_svtr_block_0_mixer_proj_drop', <class 'torch.nn.modules.dropout.Dropout'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.0.mixer.proj_drop",
+              "users": [
+                "add_56"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_295",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.02816108986735344,
+          "updated_scale": 0.05779435858130455,
+          "scale_ratio": 2.0522770550973717,
+          "sites": [
+            {
+              "producer": "conv2d_27",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___1___se_conv2', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks6.1.se.conv2",
+              "users": [
+                "hardsigmoid__1"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_42",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.2586860954761505,
+          "updated_scale": 0.5296587347984314,
+          "scale_ratio": 2.0474959576915612,
+          "sites": [
+            {
+              "producer": "conv2d_4",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks3___0___pw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.reparam_conv",
+              "users": [
+                "mul_6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_44",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.20344744622707367,
+          "updated_scale": 0.41278669238090515,
+          "scale_ratio": 2.0289598126495125,
+          "sites": [
+            {
+              "producer": "mul_6",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_6', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.lab",
+              "users": [
+                "add_6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_46",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.20344744622707367,
+          "updated_scale": 0.4124407470226288,
+          "scale_ratio": 2.027259396327303,
+          "sites": [
+            {
+              "producer": "add_6",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_6', <built-in function add>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.lab",
+              "users": [
+                "hardswish__3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_441",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.0936870351433754,
+          "updated_scale": 0.1899060308933258,
+          "scale_ratio": 2.0270257309637367,
+          "sites": [
+            {
+              "producer": "batch_norm_9",
+              "operator": "aten.batch_norm.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_conv1x1_norm', <class 'torch.nn.modules.batchnorm.BatchNorm2d'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.conv1x1.norm",
+              "users": [
+                "silu__6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_427",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.18046452105045319,
+          "updated_scale": 0.3511628806591034,
+          "scale_ratio": 1.945883205269624,
+          "sites": [
+            {
+              "producer": "linear_7",
+              "operator": "aten.linear.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_svtr_block_1_mlp_fc2', <class 'torch.nn.modules.linear.Linear'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.1.mlp.fc2",
+              "users": [
+                "dropout_7"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_428",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.18046452105045319,
+          "updated_scale": 0.3511628806591034,
+          "scale_ratio": 1.945883205269624,
+          "sites": [
+            {
+              "producer": "dropout_7",
+              "operator": "aten.dropout.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_svtr_block_1_mlp_drop_1', <class 'torch.nn.modules.dropout.Dropout'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.1.mlp.drop",
+              "users": [
+                "add_59"
+              ],
+              "is_parameter": false
+            }
+          ]
+        }
+      ]
+    },
+    "eval_fake_on": {
+      "update_batches": 69,
+      "update_mode": "eval",
+      "fake_quant_during_update": true,
+      "fake_on": {
+        "fake_quant_enabled": true,
+        "loss": 72.78381443023682,
+        "acc": 0.0,
+        "norm_edit_dis": 0.0,
+        "blank_argmax_fraction": 0.99990234375,
+        "mean_predicted_length": 0.00390625,
+        "mean_target_length": 5.16015625,
+        "logits_mean": -19.279813536850693,
+        "logits_std": 5.027918541015493,
+        "logits_abs_max": 66.76207733154297
+      },
+      "observer_only_fake_on": {
+        "fake_quant_enabled": true,
+        "loss": 72.78381443023682,
+        "acc": 0.0,
+        "norm_edit_dis": 0.0,
+        "blank_argmax_fraction": 0.99990234375,
+        "mean_predicted_length": 0.00390625,
+        "mean_target_length": 5.16015625,
+        "logits_mean": -19.279813536850693,
+        "logits_std": 5.027918541015493,
+        "logits_abs_max": 66.76207733154297
+      },
+      "non_observer_buffer_drift": [
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv2.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv3.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv4.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1x1.norm.num_batches_tracked",
+          "max_abs": 69.0
+        }
+      ],
+      "top_scale_expansion_vs_fake_off_calibration": [
+        {
+          "observer": "activation_post_process_289",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.03975210711359978,
+          "updated_scale": 0.31092068552970886,
+          "scale_ratio": 7.82148942799911,
+          "sites": [
+            {
+              "producer": "adaptive_avg_pool2d_1",
+              "operator": "aten.adaptive_avg_pool2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___1___se_avg_pool', <class 'torch.nn.modules.pooling.AdaptiveAvgPool2d'>)]",
+              "module_path": "model.backbone.blocks6.1.se.avg_pool",
+              "users": [
+                "conv2d_26"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_264",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.034687358886003494,
+          "updated_scale": 0.22924073040485382,
+          "scale_ratio": 6.608768662907728,
+          "sites": [
+            {
+              "producer": "mul_42",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_42', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks6.0.se",
+              "users": [
+                "conv2d_24"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_252",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.36098065972328186,
+          "updated_scale": 1.1895455121994019,
+          "scale_ratio": 3.2953164668469377,
+          "sites": [
+            {
+              "producer": "hardswish__20",
+              "operator": "aten.hardswish_.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___0___dw_conv_act_act', <class 'torch.nn.modules.activation.Hardswish'>)]",
+              "module_path": "model.backbone.blocks6.0.dw_conv.act.act",
+              "users": [
+                "mul_41"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_253",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.3870774805545807,
+          "updated_scale": 1.2746946811676025,
+          "scale_ratio": 3.293125395311809,
+          "sites": [
+            {
+              "producer": "mul_41",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_41', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks6.0.dw_conv.act.lab",
+              "users": [
+                "add_41"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_255",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.3870775103569031,
+          "updated_scale": 1.2744743824005127,
+          "scale_ratio": 3.292556008292472,
+          "sites": [
+            {
+              "producer": "add_41",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_41', <built-in function add>)]",
+              "module_path": "model.backbone.blocks6.0.dw_conv.act.lab",
+              "users": [
+                "adaptive_avg_pool2d",
+                "mul_42"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_279",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 1.0625377893447876,
+          "updated_scale": 3.1179540157318115,
+          "scale_ratio": 2.9344405883714435,
+          "sites": [
+            {
+              "producer": "conv2d_25",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___1___dw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks6.1.dw_conv.reparam_conv",
+              "users": [
+                "mul_45"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_281",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 1.1105695962905884,
+          "updated_scale": 3.2572765350341797,
+          "scale_ratio": 2.93297830763043,
+          "sites": [
+            {
+              "producer": "mul_45",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_45', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks6.1.dw_conv.lab",
+              "users": [
+                "add_44"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_283",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 1.110569715499878,
+          "updated_scale": 3.256545305252075,
+          "scale_ratio": 2.932319565175855,
+          "sites": [
+            {
+              "producer": "add_44",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_44', <built-in function add>)]",
+              "module_path": "model.backbone.blocks6.1.dw_conv.lab",
+              "users": [
+                "hardswish__22"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_288",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 1.0570486783981323,
+          "updated_scale": 3.0879459381103516,
+          "scale_ratio": 2.9212901933616453,
+          "sites": [
+            {
+              "producer": "add_45",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_45', <built-in function add>)]",
+              "module_path": "model.backbone.blocks6.1.dw_conv.act.lab",
+              "users": [
+                "adaptive_avg_pool2d_1",
+                "mul_47"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_286",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 1.0570485591888428,
+          "updated_scale": 3.087857246398926,
+          "scale_ratio": 2.9212066177626537,
+          "sites": [
+            {
+              "producer": "mul_46",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_46', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks6.1.dw_conv.act.lab",
+              "users": [
+                "add_45"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_285",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.7274185419082642,
+          "updated_scale": 2.1248440742492676,
+          "scale_ratio": 2.9210749408106715,
+          "sites": [
+            {
+              "producer": "hardswish__22",
+              "operator": "aten.hardswish_.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___1___dw_conv_act_act', <class 'torch.nn.modules.activation.Hardswish'>)]",
+              "module_path": "model.backbone.blocks6.1.dw_conv.act.act",
+              "users": [
+                "mul_46"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_3",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.03166275843977928,
+          "updated_scale": 0.09195081144571304,
+          "scale_ratio": 2.9040682485260443,
+          "sites": [
+            {
+              "producer": "conv2d",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('l__self___model_backbone_conv1_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.conv1.conv",
+              "users": [
+                "conv2d_1"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_246",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.6431519985198975,
+          "updated_scale": 1.8506429195404053,
+          "scale_ratio": 2.8774580873562368,
+          "sites": [
+            {
+              "producer": "conv2d_21",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___0___dw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks6.0.dw_conv.reparam_conv",
+              "users": [
+                "mul_40"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_248",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.5156201124191284,
+          "updated_scale": 1.481340765953064,
+          "scale_ratio": 2.8729305360162853,
+          "sites": [
+            {
+              "producer": "mul_40",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_40', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks6.0.dw_conv.lab",
+              "users": [
+                "add_40"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_250",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.5156201124191284,
+          "updated_scale": 1.4809024333953857,
+          "scale_ratio": 2.8720804284523624,
+          "sites": [
+            {
+              "producer": "add_40",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_40', <built-in function add>)]",
+              "module_path": "model.backbone.blocks6.0.dw_conv.lab",
+              "users": [
+                "hardswish__20"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_267",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.2042153775691986,
+          "updated_scale": 0.4961484968662262,
+          "scale_ratio": 2.4295354383785606,
+          "sites": [
+            {
+              "producer": "conv2d_24",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___0___pw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks6.0.pw_conv.reparam_conv",
+              "users": [
+                "mul_43"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_269",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.10988209396600723,
+          "updated_scale": 0.266191303730011,
+          "scale_ratio": 2.4225175742679155,
+          "sites": [
+            {
+              "producer": "mul_43",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_43', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks6.0.pw_conv.lab",
+              "users": [
+                "add_42"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_271",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.10988208651542664,
+          "updated_scale": 0.26594915986061096,
+          "scale_ratio": 2.4203140684198208,
+          "sites": [
+            {
+              "producer": "add_42",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_42', <built-in function add>)]",
+              "module_path": "model.backbone.blocks6.0.pw_conv.lab",
+              "users": [
+                "hardswish__21"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_295",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.02816108986735344,
+          "updated_scale": 0.05779435858130455,
+          "scale_ratio": 2.0522770550973717,
+          "sites": [
+            {
+              "producer": "conv2d_27",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks6___1___se_conv2', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks6.1.se.conv2",
+              "users": [
+                "hardsigmoid__1"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_42",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.2586860954761505,
+          "updated_scale": 0.5296587347984314,
+          "scale_ratio": 2.0474959576915612,
+          "sites": [
+            {
+              "producer": "conv2d_4",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks3___0___pw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.reparam_conv",
+              "users": [
+                "mul_6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_44",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.20344744622707367,
+          "updated_scale": 0.41278669238090515,
+          "scale_ratio": 2.0289598126495125,
+          "sites": [
+            {
+              "producer": "mul_6",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_6', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.lab",
+              "users": [
+                "add_6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_46",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.20344744622707367,
+          "updated_scale": 0.4124407470226288,
+          "scale_ratio": 2.027259396327303,
+          "sites": [
+            {
+              "producer": "add_6",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_6', <built-in function add>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.lab",
+              "users": [
+                "hardswish__3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_27",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.014223108068108559,
+          "updated_scale": 0.0271716620773077,
+          "scale_ratio": 1.91038849927835,
+          "sites": [
+            {
+              "producer": "add_3",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_3', <built-in function add>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.act.lab",
+              "users": [
+                "conv2d_3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_25",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.014223108068108559,
+          "updated_scale": 0.027167297899723053,
+          "scale_ratio": 1.9100816621535985,
+          "sites": [
+            {
+              "producer": "mul_3",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_3', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.act.lab",
+              "users": [
+                "add_3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_24",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.0718754231929779,
+          "updated_scale": 0.13721323013305664,
+          "scale_ratio": 1.9090423963787126,
+          "sites": [
+            {
+              "producer": "hardswish__1",
+              "operator": "aten.hardswish_.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks2___0___pw_conv_act_act', <class 'torch.nn.modules.activation.Hardswish'>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.act.act",
+              "users": [
+                "mul_3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_361",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.027239186689257622,
+          "updated_scale": 0.05138709396123886,
+          "scale_ratio": 1.8865135199320948,
+          "sites": [
+            {
+              "producer": "batch_norm_5",
+              "operator": "aten.batch_norm.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_conv1_norm', <class 'torch.nn.modules.batchnorm.BatchNorm2d'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.conv1.norm",
+              "users": [
+                "silu_"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_18",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.17191551625728607,
+          "updated_scale": 0.3235087990760803,
+          "scale_ratio": 1.881789416796574,
+          "sites": [
+            {
+              "producer": "conv2d_2",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks2___0___pw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.reparam_conv",
+              "users": [
+                "mul_2"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_20",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.12626869976520538,
+          "updated_scale": 0.23568986356258392,
+          "scale_ratio": 1.8665739332142126,
+          "sites": [
+            {
+              "producer": "mul_2",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_2', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.lab",
+              "users": [
+                "add_2"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_22",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.12626869976520538,
+          "updated_scale": 0.23544208705425262,
+          "scale_ratio": 1.864611637658845,
+          "sites": [
+            {
+              "producer": "add_2",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_2', <built-in function add>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.lab",
+              "users": [
+                "hardswish__1"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_441",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.0936870351433754,
+          "updated_scale": 0.17313621938228607,
+          "scale_ratio": 1.8480275218158457,
+          "sites": [
+            {
+              "producer": "batch_norm_9",
+              "operator": "aten.batch_norm.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_conv1x1_norm', <class 'torch.nn.modules.batchnorm.BatchNorm2d'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.conv1x1.norm",
+              "users": [
+                "silu__6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        }
+      ]
+    },
+    "train_fake_off": {
+      "update_batches": 69,
+      "update_mode": "train",
+      "fake_quant_during_update": false,
+      "fake_on": {
+        "fake_quant_enabled": true,
+        "loss": 35.98795127868652,
+        "acc": 0.01953125,
+        "norm_edit_dis": 0.1398341675685424,
+        "blank_argmax_fraction": 0.9525390625,
+        "mean_predicted_length": 1.87890625,
+        "mean_target_length": 5.16015625,
+        "logits_mean": -8.478430106064726,
+        "logits_std": 2.5309089672782075,
+        "logits_abs_max": 50.90374755859375
+      },
+      "observer_only_fake_on": {
+        "fake_quant_enabled": true,
+        "loss": 22.48099136352539,
+        "acc": 0.0234375,
+        "norm_edit_dis": 0.13474195075757556,
+        "blank_argmax_fraction": 0.97734375,
+        "mean_predicted_length": 0.90625,
+        "mean_target_length": 5.16015625,
+        "logits_mean": -8.257592976611368,
+        "logits_std": 2.2757518143975886,
+        "logits_abs_max": 31.440549850463867
+      },
+      "non_observer_buffer_drift": [
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1.norm.running_var",
+          "max_abs": 8738.91162109375
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv4.norm.running_var",
+          "max_abs": 382.4945068359375
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv2.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv3.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv4.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1x1.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1.norm.running_mean",
+          "max_abs": 45.783138275146484
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv2.norm.running_var",
+          "max_abs": 5.75236177444458
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv4.norm.running_mean",
+          "max_abs": 5.314990997314453
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv3.norm.running_mean",
+          "max_abs": 0.296043336391449
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv3.norm.running_var",
+          "max_abs": 0.13716529309749603
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv2.norm.running_mean",
+          "max_abs": 0.04651099443435669
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1x1.norm.running_var",
+          "max_abs": 0.03401188924908638
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1x1.norm.running_mean",
+          "max_abs": 0.003842264413833618
+        }
+      ],
+      "top_scale_expansion_vs_fake_off_calibration": [
+        {
+          "observer": "activation_post_process_3",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.03166275843977928,
+          "updated_scale": 0.09209078550338745,
+          "scale_ratio": 2.9084890275286264,
+          "sites": [
+            {
+              "producer": "conv2d",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('l__self___model_backbone_conv1_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.conv1.conv",
+              "users": [
+                "conv2d_1"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_418",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.024761395528912544,
+          "updated_scale": 0.06756877154111862,
+          "scale_ratio": 2.7287949688547326,
+          "sites": [
+            {
+              "producer": "linear_5",
+              "operator": "aten.linear.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_svtr_block_1_mixer_proj', <class 'torch.nn.modules.linear.Linear'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.1.mixer.proj",
+              "users": [
+                "dropout_5"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_419",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.024761395528912544,
+          "updated_scale": 0.06756877154111862,
+          "scale_ratio": 2.7287949688547326,
+          "sites": [
+            {
+              "producer": "dropout_5",
+              "operator": "aten.dropout.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_svtr_block_1_mixer_proj_drop', <class 'torch.nn.modules.dropout.Dropout'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.1.mixer.proj_drop",
+              "users": [
+                "add_58"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_429",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.20255239307880402,
+          "updated_scale": 0.5435438752174377,
+          "scale_ratio": 2.6834729866951967,
+          "sites": [
+            {
+              "producer": "add_59",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_59', <built-in function add>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.1",
+              "users": [
+                "layer_norm_4"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_441",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.0936870351433754,
+          "updated_scale": 0.22514469921588898,
+          "scale_ratio": 2.4031574792748573,
+          "sites": [
+            {
+              "producer": "batch_norm_9",
+              "operator": "aten.batch_norm.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_conv1x1_norm', <class 'torch.nn.modules.batchnorm.BatchNorm2d'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.conv1x1.norm",
+              "users": [
+                "silu__6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_383",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.010846764780580997,
+          "updated_scale": 0.025702035054564476,
+          "scale_ratio": 2.3695577044852048,
+          "sites": [
+            {
+              "producer": "matmul_1",
+              "operator": "aten.matmul.default",
+              "source_fn_stack": "[('matmul_1', 'matmul')]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.0.mixer",
+              "users": [
+                "permute_3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_384",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.010846764780580997,
+          "updated_scale": 0.025702035054564476,
+          "scale_ratio": 2.3695577044852048,
+          "sites": [
+            {
+              "producer": "permute_3",
+              "operator": "aten.permute.default",
+              "source_fn_stack": "[('permute_3', 'permute')]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.0.mixer",
+              "users": [
+                "reshape_1"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_385",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.010846764780580997,
+          "updated_scale": 0.025702035054564476,
+          "scale_ratio": 2.3695577044852048,
+          "sites": [
+            {
+              "producer": "reshape_1",
+              "operator": "aten.reshape.default",
+              "source_fn_stack": "[('reshape_1', 'reshape')]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.0.mixer",
+              "users": [
+                "linear_1"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_387",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.010359450243413448,
+          "updated_scale": 0.02272241935133934,
+          "scale_ratio": 2.1934001146234845,
+          "sites": [
+            {
+              "producer": "linear_1",
+              "operator": "aten.linear.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_svtr_block_0_mixer_proj', <class 'torch.nn.modules.linear.Linear'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.0.mixer.proj",
+              "users": [
+                "dropout_1"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_388",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.010359450243413448,
+          "updated_scale": 0.02272241935133934,
+          "scale_ratio": 2.1934001146234845,
+          "sites": [
+            {
+              "producer": "dropout_1",
+              "operator": "aten.dropout.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_svtr_block_0_mixer_proj_drop', <class 'torch.nn.modules.dropout.Dropout'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.0.mixer.proj_drop",
+              "users": [
+                "add_56"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_442",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.0586438924074173,
+          "updated_scale": 0.12607334554195404,
+          "scale_ratio": 2.1498120327021173,
+          "sites": [
+            {
+              "producer": "silu__6",
+              "operator": "aten.silu_.default",
+              "source_fn_stack": "[('silu_6', <function silu at 0x7f959241fc70>)]",
+              "module_path": "model.head.ctc_encoder.encoder.conv1x1.act.act",
+              "users": [
+                "squeeze"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_443",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.0586438924074173,
+          "updated_scale": 0.12607334554195404,
+          "scale_ratio": 2.1498120327021173,
+          "sites": [
+            {
+              "producer": "squeeze",
+              "operator": "aten.squeeze.dim",
+              "source_fn_stack": "[('squeeze', 'squeeze')]",
+              "module_path": "model.head.ctc_encoder.encoder_reshape",
+              "users": [
+                "permute_8"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_444",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.0586438924074173,
+          "updated_scale": 0.12607334554195404,
+          "scale_ratio": 2.1498120327021173,
+          "sites": [
+            {
+              "producer": "permute_8",
+              "operator": "aten.permute.default",
+              "source_fn_stack": "[('permute_8', 'permute')]",
+              "module_path": "model.head.ctc_encoder.encoder_reshape",
+              "users": [
+                "linear_8"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_44",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.20344744622707367,
+          "updated_scale": 0.4193574786186218,
+          "scale_ratio": 2.0612570292505152,
+          "sites": [
+            {
+              "producer": "mul_6",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_6', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.lab",
+              "users": [
+                "add_6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_46",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.20344744622707367,
+          "updated_scale": 0.4193574786186218,
+          "scale_ratio": 2.0612570292505152,
+          "sites": [
+            {
+              "producer": "add_6",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_6', <built-in function add>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.lab",
+              "users": [
+                "hardswish__3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_42",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.2586860954761505,
+          "updated_scale": 0.533218502998352,
+          "scale_ratio": 2.061256914550755,
+          "sites": [
+            {
+              "producer": "conv2d_4",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks3___0___pw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.reparam_conv",
+              "users": [
+                "mul_6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_63",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.00359540106728673,
+          "updated_scale": 0.006960681173950434,
+          "scale_ratio": 1.9359957467007467,
+          "sites": [
+            {
+              "producer": "add_9",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_9', <built-in function add>)]",
+              "module_path": "model.backbone.blocks3.1.dw_conv.act.lab",
+              "users": [
+                "conv2d_6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_61",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.0035954013001173735,
+          "updated_scale": 0.006960680708289146,
+          "scale_ratio": 1.9359954918139213,
+          "sites": [
+            {
+              "producer": "mul_9",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_9', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks3.1.dw_conv.act.lab",
+              "users": [
+                "add_9"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_60",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.17124080657958984,
+          "updated_scale": 0.33152130246162415,
+          "scale_ratio": 1.9359947496366097,
+          "sites": [
+            {
+              "producer": "hardswish__4",
+              "operator": "aten.hardswish_.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks3___1___dw_conv_act_act', <class 'torch.nn.modules.activation.Hardswish'>)]",
+              "module_path": "model.backbone.blocks3.1.dw_conv.act.act",
+              "users": [
+                "mul_9"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_427",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.18046452105045319,
+          "updated_scale": 0.3483315408229828,
+          "scale_ratio": 1.9301940281414005,
+          "sites": [
+            {
+              "producer": "linear_7",
+              "operator": "aten.linear.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_svtr_block_1_mlp_fc2', <class 'torch.nn.modules.linear.Linear'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.1.mlp.fc2",
+              "users": [
+                "dropout_7"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_428",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.18046452105045319,
+          "updated_scale": 0.3483315408229828,
+          "scale_ratio": 1.9301940281414005,
+          "sites": [
+            {
+              "producer": "dropout_7",
+              "operator": "aten.dropout.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_encoder_encoder_svtr_block_1_mlp_drop_1', <class 'torch.nn.modules.dropout.Dropout'>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.1.mlp.drop",
+              "users": [
+                "add_59"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_25",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.014223108068108559,
+          "updated_scale": 0.0273123811930418,
+          "scale_ratio": 1.9202821958642338,
+          "sites": [
+            {
+              "producer": "mul_3",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_3', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.act.lab",
+              "users": [
+                "add_3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_27",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.014223108068108559,
+          "updated_scale": 0.027312379330396652,
+          "scale_ratio": 1.9202820649051535,
+          "sites": [
+            {
+              "producer": "add_3",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_3', <built-in function add>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.act.lab",
+              "users": [
+                "conv2d_3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_24",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.0718754231929779,
+          "updated_scale": 0.1380210667848587,
+          "scale_ratio": 1.9202817966620767,
+          "sites": [
+            {
+              "producer": "hardswish__1",
+              "operator": "aten.hardswish_.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks2___0___pw_conv_act_act', <class 'torch.nn.modules.activation.Hardswish'>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.act.act",
+              "users": [
+                "mul_3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_18",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.17191551625728607,
+          "updated_scale": 0.3237308859825134,
+          "scale_ratio": 1.8830812542715625,
+          "sites": [
+            {
+              "producer": "conv2d_2",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks2___0___pw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.reparam_conv",
+              "users": [
+                "mul_2"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_20",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.12626869976520538,
+          "updated_scale": 0.23777419328689575,
+          "scale_ratio": 1.8830810306040455,
+          "sites": [
+            {
+              "producer": "mul_2",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_2', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.lab",
+              "users": [
+                "add_2"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_22",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.12626869976520538,
+          "updated_scale": 0.23777419328689575,
+          "scale_ratio": 1.8830810306040455,
+          "sites": [
+            {
+              "producer": "add_2",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_2', <built-in function add>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.lab",
+              "users": [
+                "hardswish__1"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_420",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.056833893060684204,
+          "updated_scale": 0.10683020949363708,
+          "scale_ratio": 1.8796919186860819,
+          "sites": [
+            {
+              "producer": "add_58",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_58', <built-in function add>)]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.1",
+              "users": [
+                "layer_norm_3",
+                "add_59"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_446",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.40083998441696167,
+          "updated_scale": 0.748584508895874,
+          "scale_ratio": 1.8675395120192941,
+          "sites": [
+            {
+              "producer": "linear_8",
+              "operator": "aten.linear.default",
+              "source_fn_stack": "[('l__self___model_head_ctc_head_fc', <class 'torch.nn.modules.linear.Linear'>)]",
+              "module_path": "model.head.ctc_head.fc",
+              "users": [
+                "output"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_414",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.023477381095290184,
+          "updated_scale": 0.04358759894967079,
+          "scale_ratio": 1.856578413612536,
+          "sites": [
+            {
+              "producer": "matmul_3",
+              "operator": "aten.matmul.default",
+              "source_fn_stack": "[('matmul_3', 'matmul')]",
+              "module_path": "model.head.ctc_encoder.encoder.svtr_block.1.mixer",
+              "users": [
+                "permute_6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        }
+      ]
+    },
+    "eval_fake_off": {
+      "update_batches": 69,
+      "update_mode": "eval",
+      "fake_quant_during_update": false,
+      "fake_on": {
+        "fake_quant_enabled": true,
+        "loss": 20.71289038658142,
+        "acc": 0.01953125,
+        "norm_edit_dis": 0.15724826388888902,
+        "blank_argmax_fraction": 0.9728515625,
+        "mean_predicted_length": 1.0859375,
+        "mean_target_length": 5.16015625,
+        "logits_mean": -8.122049224911613,
+        "logits_std": 2.319949596381323,
+        "logits_abs_max": 31.86261749267578
+      },
+      "observer_only_fake_on": {
+        "fake_quant_enabled": true,
+        "loss": 20.71289038658142,
+        "acc": 0.01953125,
+        "norm_edit_dis": 0.15724826388888902,
+        "blank_argmax_fraction": 0.9728515625,
+        "mean_predicted_length": 1.0859375,
+        "mean_target_length": 5.16015625,
+        "logits_mean": -8.122049224911613,
+        "logits_std": 2.319949596381323,
+        "logits_abs_max": 31.86261749267578
+      },
+      "non_observer_buffer_drift": [
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv2.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv3.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv4.norm.num_batches_tracked",
+          "max_abs": 69.0
+        },
+        {
+          "name": "model.head.ctc_encoder.encoder.conv1x1.norm.num_batches_tracked",
+          "max_abs": 69.0
+        }
+      ],
+      "top_scale_expansion_vs_fake_off_calibration": [
+        {
+          "observer": "activation_post_process_3",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.03166275843977928,
+          "updated_scale": 0.09209078550338745,
+          "scale_ratio": 2.9084890275286264,
+          "sites": [
+            {
+              "producer": "conv2d",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('l__self___model_backbone_conv1_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.conv1.conv",
+              "users": [
+                "conv2d_1"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_44",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.20344744622707367,
+          "updated_scale": 0.4193574786186218,
+          "scale_ratio": 2.0612570292505152,
+          "sites": [
+            {
+              "producer": "mul_6",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_6', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.lab",
+              "users": [
+                "add_6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_46",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.20344744622707367,
+          "updated_scale": 0.4193574786186218,
+          "scale_ratio": 2.0612570292505152,
+          "sites": [
+            {
+              "producer": "add_6",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_6', <built-in function add>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.lab",
+              "users": [
+                "hardswish__3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_42",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.2586860954761505,
+          "updated_scale": 0.533218502998352,
+          "scale_ratio": 2.061256914550755,
+          "sites": [
+            {
+              "producer": "conv2d_4",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks3___0___pw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.reparam_conv",
+              "users": [
+                "mul_6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_63",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.00359540106728673,
+          "updated_scale": 0.006960681173950434,
+          "scale_ratio": 1.9359957467007467,
+          "sites": [
+            {
+              "producer": "add_9",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_9', <built-in function add>)]",
+              "module_path": "model.backbone.blocks3.1.dw_conv.act.lab",
+              "users": [
+                "conv2d_6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_61",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.0035954013001173735,
+          "updated_scale": 0.006960680708289146,
+          "scale_ratio": 1.9359954918139213,
+          "sites": [
+            {
+              "producer": "mul_9",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_9', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks3.1.dw_conv.act.lab",
+              "users": [
+                "add_9"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_60",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.17124080657958984,
+          "updated_scale": 0.33152130246162415,
+          "scale_ratio": 1.9359947496366097,
+          "sites": [
+            {
+              "producer": "hardswish__4",
+              "operator": "aten.hardswish_.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks3___1___dw_conv_act_act', <class 'torch.nn.modules.activation.Hardswish'>)]",
+              "module_path": "model.backbone.blocks3.1.dw_conv.act.act",
+              "users": [
+                "mul_9"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_25",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.014223108068108559,
+          "updated_scale": 0.0273123811930418,
+          "scale_ratio": 1.9202821958642338,
+          "sites": [
+            {
+              "producer": "mul_3",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_3', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.act.lab",
+              "users": [
+                "add_3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_27",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.014223108068108559,
+          "updated_scale": 0.027312379330396652,
+          "scale_ratio": 1.9202820649051535,
+          "sites": [
+            {
+              "producer": "add_3",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_3', <built-in function add>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.act.lab",
+              "users": [
+                "conv2d_3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_24",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.0718754231929779,
+          "updated_scale": 0.1380210667848587,
+          "scale_ratio": 1.9202817966620767,
+          "sites": [
+            {
+              "producer": "hardswish__1",
+              "operator": "aten.hardswish_.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks2___0___pw_conv_act_act', <class 'torch.nn.modules.activation.Hardswish'>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.act.act",
+              "users": [
+                "mul_3"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_18",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.17191551625728607,
+          "updated_scale": 0.3237308859825134,
+          "scale_ratio": 1.8830812542715625,
+          "sites": [
+            {
+              "producer": "conv2d_2",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks2___0___pw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.reparam_conv",
+              "users": [
+                "mul_2"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_20",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.12626869976520538,
+          "updated_scale": 0.23777419328689575,
+          "scale_ratio": 1.8830810306040455,
+          "sites": [
+            {
+              "producer": "mul_2",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_2', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.lab",
+              "users": [
+                "add_2"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_22",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.12626869976520538,
+          "updated_scale": 0.23777419328689575,
+          "scale_ratio": 1.8830810306040455,
+          "sites": [
+            {
+              "producer": "add_2",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_2', <built-in function add>)]",
+              "module_path": "model.backbone.blocks2.0.pw_conv.lab",
+              "users": [
+                "hardswish__1"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_48",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.11058228462934494,
+          "updated_scale": 0.204763725399971,
+          "scale_ratio": 1.8516865163919156,
+          "sites": [
+            {
+              "producer": "hardswish__3",
+              "operator": "aten.hardswish_.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks3___0___pw_conv_act_act', <class 'torch.nn.modules.activation.Hardswish'>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.act.act",
+              "users": [
+                "mul_7"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_49",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.01857835240662098,
+          "updated_scale": 0.03440128266811371,
+          "scale_ratio": 1.8516864098160681,
+          "sites": [
+            {
+              "producer": "mul_7",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_7', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.act.lab",
+              "users": [
+                "add_7"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_51",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.01857835240662098,
+          "updated_scale": 0.03440128266811371,
+          "scale_ratio": 1.8516864098160681,
+          "sites": [
+            {
+              "producer": "add_7",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_7', <built-in function add>)]",
+              "module_path": "model.backbone.blocks3.0.pw_conv.act.lab",
+              "users": [
+                "conv2d_5"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_56",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.35345298051834106,
+          "updated_scale": 0.649516761302948,
+          "scale_ratio": 1.8376327180787315,
+          "sites": [
+            {
+              "producer": "mul_8",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_8', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks3.1.dw_conv.lab",
+              "users": [
+                "add_8"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_58",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.35345298051834106,
+          "updated_scale": 0.649516761302948,
+          "scale_ratio": 1.8376327180787315,
+          "sites": [
+            {
+              "producer": "add_8",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_8', <built-in function add>)]",
+              "module_path": "model.backbone.blocks3.1.dw_conv.lab",
+              "users": [
+                "hardswish__4"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_54",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.24617888033390045,
+          "updated_scale": 0.45238634943962097,
+          "scale_ratio": 1.837632654864766,
+          "sites": [
+            {
+              "producer": "conv2d_5",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks3___1___dw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks3.1.dw_conv.reparam_conv",
+              "users": [
+                "mul_8"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_78",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.20687738060951233,
+          "updated_scale": 0.3732822835445404,
+          "scale_ratio": 1.8043648969488968,
+          "sites": [
+            {
+              "producer": "conv2d_7",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks4___0___dw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks4.0.dw_conv.reparam_conv",
+              "users": [
+                "mul_12"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_80",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.11006685346364975,
+          "updated_scale": 0.19860073924064636,
+          "scale_ratio": 1.8043646474025485,
+          "sites": [
+            {
+              "producer": "mul_12",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_12', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks4.0.dw_conv.lab",
+              "users": [
+                "add_12"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_82",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.11006685346364975,
+          "updated_scale": 0.19860073924064636,
+          "scale_ratio": 1.8043646474025485,
+          "sites": [
+            {
+              "producer": "add_12",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_12', <built-in function add>)]",
+              "module_path": "model.backbone.blocks4.0.dw_conv.lab",
+              "users": [
+                "hardswish__6"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_128",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.11025121808052063,
+          "updated_scale": 0.19394642114639282,
+          "scale_ratio": 1.7591317767096815,
+          "sites": [
+            {
+              "producer": "mul_20",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_20', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks5.0.dw_conv.lab",
+              "users": [
+                "add_20"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_130",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.11025121808052063,
+          "updated_scale": 0.19394642114639282,
+          "scale_ratio": 1.7591317767096815,
+          "sites": [
+            {
+              "producer": "add_20",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_20', <built-in function add>)]",
+              "module_path": "model.backbone.blocks5.0.dw_conv.lab",
+              "users": [
+                "hardswish__10"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_126",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.22903472185134888,
+          "updated_scale": 0.402902215719223,
+          "scale_ratio": 1.7591315956919402,
+          "sites": [
+            {
+              "producer": "conv2d_11",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks5___0___dw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks5.0.dw_conv.reparam_conv",
+              "users": [
+                "mul_20"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_70",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.48529526591300964,
+          "updated_scale": 0.8267782926559448,
+          "scale_ratio": 1.7036603295531567,
+          "sites": [
+            {
+              "producer": "add_10",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_10', <built-in function add>)]",
+              "module_path": "model.backbone.blocks3.1.pw_conv.lab",
+              "users": [
+                "hardswish__5"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_68",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.48529529571533203,
+          "updated_scale": 0.8267782926559448,
+          "scale_ratio": 1.7036602249301884,
+          "sites": [
+            {
+              "producer": "mul_10",
+              "operator": "aten.mul.Tensor",
+              "source_fn_stack": "[('mul_10', <built-in function mul>)]",
+              "module_path": "model.backbone.blocks3.1.pw_conv.lab",
+              "users": [
+                "add_10"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_66",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.544718325138092,
+          "updated_scale": 0.928014874458313,
+          "scale_ratio": 1.7036600966619786,
+          "sites": [
+            {
+              "producer": "conv2d_6",
+              "operator": "aten.conv2d.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks3___1___pw_conv_reparam_conv', <class 'torch.nn.modules.conv.Conv2d'>)]",
+              "module_path": "model.backbone.blocks3.1.pw_conv.reparam_conv",
+              "users": [
+                "mul_10"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_84",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.05028456449508667,
+          "updated_scale": 0.08445297181606293,
+          "scale_ratio": 1.6795009097536258,
+          "sites": [
+            {
+              "producer": "hardswish__6",
+              "operator": "aten.hardswish_.default",
+              "source_fn_stack": "[('getattr_l__self___model_backbone_blocks4___0___dw_conv_act_act', <class 'torch.nn.modules.activation.Hardswish'>)]",
+              "module_path": "model.backbone.blocks4.0.dw_conv.act.act",
+              "users": [
+                "mul_13"
+              ],
+              "is_parameter": false
+            }
+          ]
+        },
+        {
+          "observer": "activation_post_process_87",
+          "dtype": "torch.uint8",
+          "qmin": 0,
+          "qmax": 255,
+          "reference_scale": 0.0021810296457260847,
+          "updated_scale": 0.003663041163235903,
+          "scale_ratio": 1.6795008588782583,
+          "sites": [
+            {
+              "producer": "add_13",
+              "operator": "aten.add.Tensor",
+              "source_fn_stack": "[('add_13', <built-in function add>)]",
+              "module_path": "model.backbone.blocks4.0.dw_conv.act.lab",
+              "users": [
+                "conv2d_8"
+              ],
+              "is_parameter": false
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

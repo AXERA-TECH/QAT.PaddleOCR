@@ -13,6 +13,7 @@ class ConvBNAct(nn.Module):
                  use_act=True):
         super().__init__()
         self.use_act = use_act
+        self.is_repped = False
         self.conv = nn.Conv2d(
             in_channels,
             out_channels,
@@ -27,10 +28,38 @@ class ConvBNAct(nn.Module):
 
     def forward(self, x):
         x = self.conv(x)
-        x = self.bn(x)
+        if not self.is_repped:
+            x = self.bn(x)
         if self.use_act:
             x = self.act(x)
         return x
+
+    @torch.no_grad()
+    def rep(self):
+        """Fuse the Conv2d and BatchNorm2d for the deployment/QAT graph."""
+        if self.is_repped:
+            return
+        conv, bn = self.conv, self.bn
+        inv_std = torch.rsqrt(bn.running_var + bn.eps)
+        fused_weight = conv.weight * (bn.weight * inv_std).reshape(-1, 1, 1, 1)
+        fused_bias = bn.bias - bn.running_mean * bn.weight * inv_std
+
+        fused_conv = nn.Conv2d(
+            conv.in_channels,
+            conv.out_channels,
+            conv.kernel_size,
+            stride=conv.stride,
+            padding=conv.padding,
+            dilation=conv.dilation,
+            groups=conv.groups,
+            bias=True,
+            padding_mode=conv.padding_mode,
+        )
+        fused_conv.weight.copy_(fused_weight)
+        fused_conv.bias.copy_(fused_bias)
+        self.conv = fused_conv
+        del self.bn
+        self.is_repped = True
 
 
 class ESEModule(nn.Module):
@@ -216,6 +245,14 @@ class PPHGNet(nn.Module):
                 nn.init.zeros_(m.bias)
             elif isinstance(m, nn.Linear):
                 nn.init.zeros_(m.bias)
+
+    @torch.no_grad()
+    def rep(self):
+        """Fuse every Conv-BN pair before PT2E capture."""
+        for module in list(self.modules()):
+            if isinstance(module, ConvBNAct):
+                module.rep()
+        return self
 
     def forward(self, x):
         x = self.stem(x)
