@@ -14,6 +14,7 @@ from pytorchocr.quantization.onnx_export import (
     name_dynamic_input_axes,
     remove_exact_redundant_dq_q,
     set_static_input_axes,
+    swap_scalar_first_quantized_muls,
 )
 from pytorchocr.quantization.validation import validate_qdq_graph
 
@@ -375,6 +376,117 @@ class OnnxExportTest(unittest.TestCase):
         self.assertEqual(model.graph.node[1].input[0], "dequantized_1")
         self.assertEqual(model.graph.node[2].input[0], "dequantized_1_identity")
         onnx.checker.check_model(model, full_check=True)
+
+    @staticmethod
+    def _build_scalar_mul_model(tensor_first):
+        # DQ(int8 scalar const) * DQ(uint8 tensor) -> float output.
+        scalar = numpy_helper.from_array(
+            np.asarray([1], dtype=np.int8),
+            "scalar",
+        )
+        scalar_scale = numpy_helper.from_array(
+            np.asarray(0.5, dtype=np.float32),
+            "scalar_scale",
+        )
+        scalar_zp = numpy_helper.from_array(
+            np.asarray(0, dtype=np.int8),
+            "scalar_zp",
+        )
+        tensor_scale = numpy_helper.from_array(
+            np.asarray(0.25, dtype=np.float32),
+            "tensor_scale",
+        )
+        tensor_zp = numpy_helper.from_array(
+            np.asarray(3, dtype=np.uint8),
+            "tensor_zp",
+        )
+        nodes = [
+            helper.make_node(
+                "DequantizeLinear",
+                ["scalar", "scalar_scale", "scalar_zp"],
+                ["dequantized_scalar"],
+                name="dq_scalar",
+            ),
+            helper.make_node(
+                "DequantizeLinear",
+                ["input", "tensor_scale", "tensor_zp"],
+                ["dequantized_input"],
+                name="dq_input",
+            ),
+        ]
+        mul_inputs = (
+            ["dequantized_input", "dequantized_scalar"]
+            if tensor_first
+            else ["dequantized_scalar", "dequantized_input"]
+        )
+        nodes.append(
+            helper.make_node(
+                "Mul",
+                mul_inputs,
+                ["output"],
+                name="mul",
+            )
+        )
+        graph = helper.make_graph(
+            nodes,
+            "scalar_mul_test",
+            [helper.make_tensor_value_info("input", TensorProto.UINT8, [1, 4])],
+            [helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 4])],
+            [scalar, scalar_scale, scalar_zp, tensor_scale, tensor_zp],
+        )
+        return helper.make_model(
+            graph,
+            opset_imports=[helper.make_opsetid("", 21)],
+            ir_version=10,
+        )
+
+    def test_swaps_scalar_first_quantized_mul(self):
+        model = self._build_scalar_mul_model(tensor_first=False)
+        self.assertEqual(swap_scalar_first_quantized_muls(model), 1)
+        mul = next(node for node in model.graph.node if node.op_type == "Mul")
+        self.assertEqual(list(mul.input), ["dequantized_input", "dequantized_scalar"])
+        onnx.checker.check_model(model, full_check=True)
+
+    def test_swapped_mul_is_numerically_identical(self):
+        import onnxruntime as ort
+
+        before = self._build_scalar_mul_model(tensor_first=False)
+        after = self._build_scalar_mul_model(tensor_first=False)
+        self.assertEqual(swap_scalar_first_quantized_muls(after), 1)
+        with tempfile.TemporaryDirectory() as directory:
+            before_path = f"{directory}/before.onnx"
+            after_path = f"{directory}/after.onnx"
+            onnx.save(before, before_path)
+            onnx.save(after, after_path)
+            input_value = np.asarray([[10, 40, 200, 0]], dtype=np.uint8)
+            options = ort.SessionOptions()
+            options.graph_optimization_level = (
+                ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+            )
+            before_output = (
+                ort.InferenceSession(before_path, options)
+                .run(None, {"input": input_value})[0]
+            )
+            after_output = (
+                ort.InferenceSession(after_path, options)
+                .run(None, {"input": input_value})[0]
+            )
+        np.testing.assert_array_equal(before_output, after_output)
+
+    def test_preserves_tensor_first_quantized_mul(self):
+        model = self._build_scalar_mul_model(tensor_first=True)
+        self.assertEqual(swap_scalar_first_quantized_muls(model), 0)
+        mul = next(node for node in model.graph.node if node.op_type == "Mul")
+        self.assertEqual(list(mul.input), ["dequantized_input", "dequantized_scalar"])
+
+    def test_preserves_tensor_tensor_mul(self):
+        model = self._build_scalar_mul_model(tensor_first=True)
+        # Replace the scalar DQ input with a second tensor-shaped DQ so neither
+        # operand is a static scalar.
+        for node in model.graph.node:
+            if node.name == "mul":
+                node.input[:] = ["dequantized_input", "dequantized_input"]
+        self.assertEqual(swap_scalar_first_quantized_muls(model), 0)
 
     def test_rejects_conv_output_without_qdq(self):
         weight = numpy_helper.from_array(

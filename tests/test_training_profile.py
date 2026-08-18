@@ -15,6 +15,7 @@ from pytorchocr.training import (
     validate_resume_contract,
 )
 from pytorchocr.training.model_builder import resolve_config_path
+from pytorchocr.training.profile import copy_run_configs
 
 
 class TrainingProfileTest(unittest.TestCase):
@@ -269,6 +270,47 @@ class TrainingProfileTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "kd must be boolean"):
                 load_training_profile(profile_path)
+
+    def test_profile_accepts_lsq_field(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile_path = Path(directory) / "lsq.yml"
+            profile_path.write_text(
+                "training:\n  lsq: true\n",
+                encoding="utf-8",
+            )
+            profile = load_training_profile(profile_path)
+            self.assertTrue(profile.training["lsq"])
+
+    def test_profile_rejects_non_boolean_lsq(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile_path = Path(directory) / "invalid.yml"
+            profile_path.write_text(
+                "training:\n  lsq: 1\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "lsq must be boolean"):
+                load_training_profile(profile_path)
+
+    def test_resume_contract_rejects_lsq_change(self):
+        with self.assertRaisesRegex(ValueError, "lsq"):
+            validate_resume_contract(
+                {
+                    "task": "rec",
+                    "model_config": "configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml",
+                    "qat": True,
+                    "reparameterized": False,
+                    "lsq": False,
+                    "rec_graph": "pretrained_train",
+                },
+                {
+                    "task": "rec",
+                    "model_config": "configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml",
+                    "qat": True,
+                    "reparameterized": False,
+                    "lsq": True,
+                    "rec_graph": "pretrained_train",
+                },
+            )
 
     def test_profile_rejects_invalid_kd_mode(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -569,6 +611,97 @@ class TrainingProfileTest(unittest.TestCase):
         path = "/home/heqi/dataset/model.yml"
 
         self.assertEqual(relocate_project_path(path), path)
+
+    def test_copy_run_configs_copies_all_configured_files(self):
+        profile = load_training_profile(
+            "configs/qat/training/ppocrv5_mobile_rec_u16s16_sgd_dynamic_height_exp8_lsq_warmup_keep_bn.yml"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            copied = copy_run_configs(
+                directory,
+                model_config="configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml",
+                training_profile=profile.path,
+                qat_config=profile.qat_config,
+            )
+            copied_names = {Path(destination).name for _, destination in copied}
+            self.assertEqual(
+                copied_names,
+                {
+                    "PP-OCRv5_mobile_rec.yml",
+                    "ppocrv5_mobile_rec_u16s16_sgd_dynamic_height_exp8_lsq_warmup_keep_bn.yml",
+                    "ppocrv5_mobile_rec_u16s16_attn_s16_lsq.json",
+                },
+            )
+            for _, destination in copied:
+                self.assertTrue(Path(destination).is_file())
+                self.assertGreater(Path(destination).stat().st_size, 0)
+
+    def test_copy_run_configs_raises_for_missing_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(FileNotFoundError):
+                copy_run_configs(
+                    directory,
+                    model_config="/nonexistent/model.yml",
+                )
+
+    def test_copy_run_configs_skips_none_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            copied = copy_run_configs(directory, model_config=None)
+            self.assertEqual(copied, [])
+
+    def test_qat_profile_rejects_adam_optimizer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "qat_adam.yml"
+            qat_config = Path("configs/qat/base_u8s8.json").resolve()
+            path.write_text(
+                "name: qat-adam\n"
+                "task: rec\n"
+                "qat: true\n"
+                f"qat_config: {qat_config}\n"
+                "training:\n"
+                "  epochs: 10\n"
+                "  batch_size: 4\n"
+                "  optimizer: Adam\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError) as context:
+                load_training_profile(str(path))
+            self.assertIn("AdamW or SGD", str(context.exception))
+
+    def test_qat_profile_accepts_adamw(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "qat_adamw.yml"
+            qat_config = Path("configs/qat/base_u8s8.json").resolve()
+            path.write_text(
+                "name: qat-adamw\n"
+                "task: rec\n"
+                "qat: true\n"
+                f"qat_config: {qat_config}\n"
+                "training:\n"
+                "  epochs: 10\n"
+                "  batch_size: 4\n"
+                "  optimizer: AdamW\n",
+                encoding="utf-8",
+            )
+            profile = load_training_profile(str(path))
+            self.assertEqual(profile.training["optimizer"], "AdamW")
+
+    def test_non_qat_profile_allows_adam(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "float_adam.yml"
+            path.write_text(
+                "name: float-adam\n"
+                "task: rec\n"
+                "qat: false\n"
+                "training:\n"
+                "  epochs: 10\n"
+                "  batch_size: 4\n"
+                "  optimizer: Adam\n",
+                encoding="utf-8",
+            )
+            profile = load_training_profile(str(path))
+            self.assertEqual(profile.training["optimizer"], "Adam")
+
 
 if __name__ == "__main__":
     unittest.main()

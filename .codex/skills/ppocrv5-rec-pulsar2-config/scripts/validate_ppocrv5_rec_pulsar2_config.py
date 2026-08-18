@@ -21,6 +21,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-attention", type=int, default=2)
     parser.add_argument("--expected-requant", type=int, default=1)
     parser.add_argument("--expected-silu", type=int, default=7)
+    parser.add_argument(
+        "--attention-dtype",
+        choices=("S8", "S16"),
+        default="S16",
+        help="Signed dtype inside the SVTR attention core (S8 or S16).",
+    )
     parser.add_argument("--expected-target-hardware", default="AX650")
     parser.add_argument("--expected-npu-mode", default="NPU3")
     return parser.parse_args()
@@ -48,6 +54,7 @@ def main() -> None:
         args.expected_attention,
         args.expected_requant,
         args.expected_silu,
+        args.attention_dtype,
     )
     config = json.loads(args.config.read_text(encoding="utf-8"))
     configured_input = config.get("input")
@@ -88,17 +95,28 @@ def main() -> None:
     qkv_names = [region["qkv_output"] for region in regions]
     core_names = [name for region in regions for name in region["core"]]
     second_names = [region["second_matmul"] for region in regions]
+    attention_dtype = args.attention_dtype
     rules = quant.get("layer_configs", [])
     require(len(rules) == 3, "Exactly three generated layer_configs groups are required")
-    qkv_rule = find_rule(rules, qkv_names, "QKV output S16")
-    core_rule = find_rule(rules, core_names, "attention core S16")
-    second_rule = find_rule(rules, second_names, "second MatMul S16 input")
-    require(qkv_rule == {"layer_names": qkv_names, "output_data_type": "S16"}, "Invalid QKV S16 rule")
+    qkv_rule = find_rule(rules, qkv_names, f"QKV output {attention_dtype}")
+    core_rule = find_rule(rules, core_names, f"attention core {attention_dtype}")
+    second_rule = find_rule(rules, second_names, f"second MatMul {attention_dtype} input")
     require(
-        core_rule == {"layer_names": core_names, "data_type": "S16", "output_data_type": "S16"},
-        "Invalid attention core S16 rule",
+        qkv_rule == {"layer_names": qkv_names, "output_data_type": attention_dtype},
+        f"Invalid QKV {attention_dtype} rule",
     )
-    require(second_rule == {"layer_names": second_names, "data_type": "S16"}, "Invalid second MatMul S16 rule")
+    require(
+        core_rule == {
+            "layer_names": core_names,
+            "data_type": attention_dtype,
+            "output_data_type": attention_dtype,
+        },
+        f"Invalid attention core {attention_dtype} rule",
+    )
+    require(
+        second_rule == {"layer_names": second_names, "data_type": attention_dtype},
+        f"Invalid second MatMul {attention_dtype} rule",
+    )
 
     if args.report is not None:
         report = json.loads(args.report.read_text(encoding="utf-8"))

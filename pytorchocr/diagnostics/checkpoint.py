@@ -48,6 +48,7 @@ def build_prepared_qat_checkpoint(
             metadata.get("rec_ctc_backbone_grad", False)
         ),
         rec_graph=rec_graph,
+        insert_identity_bn=bool(metadata.get("insert_identity_bn", False)),
     )
     if kd and task == "det":
         # KD checkpoints were captured with intermediate features exposed.
@@ -78,6 +79,7 @@ def build_prepared_qat_checkpoint(
         model,
         example_inputs,
         load_axera_quantizer(qat_config),
+        freeze_kept_bn_stats=bool(metadata.get("freeze_bn_stats", False)),
         dynamic_shapes=build_qat_dynamic_shapes(
             capture_images,
             dynamic_batch=dynamic_batch,

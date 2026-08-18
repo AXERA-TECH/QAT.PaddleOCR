@@ -403,6 +403,7 @@ report: artifacts/accuracy_baseline/p4_structure/ppocrv6_castfold_exports_202608
 | P2 PyTorch float | 部分通过 | rec 按 argmax `>=0.9998` 通过；det 稀疏框行为差异继续跟踪 |
 | P3 训练评估语义 | 已完成（2026-08-07） | 重参数化 A/B、eager Conv-BN 结构检查、reparam PT2E smoke 均已执行并给出结论；融合误差已记录并接受为 QAT 恢复风险，不采用 eager Conv-BN deploy 图 |
 | P4 fake-quant-off | rec 已验证 | v5 rec 任务指标 delta 通过；严格 tensor 容差因 PT2E Conv-BN QAT 重写未通过，det 待验证 |
+| P5-P8 后续 | 见训练记录 | fake-quant-on/converted、QuantONNX/ORT 与 Axera 对齐已在 v5 rec 训练记录 Exp1-16 与 §40.2 逐层对比中执行；exp16 上板 acc 0.58449 vs ORT 0.58546（2026-08-18） |
 
 ## 8. Pad 量化规则变更后的 det smoke
 

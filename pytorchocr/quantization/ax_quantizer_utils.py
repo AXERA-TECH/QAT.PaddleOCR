@@ -1,5 +1,6 @@
 # mypy: allow-untyped-decorators
 # mypy: allow-untyped-defs
+import functools
 import itertools
 from dataclasses import dataclass
 from typing import Callable, Dict, List, NamedTuple, Optional
@@ -225,7 +226,40 @@ def get_output_act_qspec(quantization_config: Optional[QuantizationConfig]):
     return quantization_spec
 
 
-def get_weight_qspec(quantization_config: Optional[QuantizationConfig]):
+def get_weight_shape(gm: torch.fx.GraphModule, weight_node):
+    """Resolve the weight tensor shape for LSQ per-channel channel_len."""
+    if "val" in weight_node.meta and weight_node.meta["val"] is not None:
+        return weight_node.meta["val"].shape
+    if "fake_tensor" in weight_node.meta and weight_node.meta["fake_tensor"] is not None:
+        return weight_node.meta["fake_tensor"].shape
+    if weight_node.op == "get_attr":
+        try:
+            return getattr(gm, weight_node.target).shape
+        except AttributeError:
+            return None
+    if weight_node.op == "placeholder":
+        tensor_meta = weight_node.meta.get("tensor_meta")
+        if tensor_meta is not None:
+            return tensor_meta.shape
+    return None
+
+
+def _ctr_is_fakequat(obj, fake_quant_class):
+    """Check whether a qspec ctr wraps the given FakeQuantize class."""
+    from torch.ao.quantization.observer import _PartialWrapper
+
+    if isinstance(obj, _PartialWrapper):
+        wrapped = obj.p
+        if isinstance(wrapped, functools.partial):
+            return wrapped.func == fake_quant_class
+        return wrapped == fake_quant_class
+    return obj == fake_quant_class
+
+
+def get_weight_qspec(
+    quantization_config: Optional[QuantizationConfig],
+    weight_node_shape: Optional[List[int]] = None,
+):
     if quantization_config is None:
         return None
     assert quantization_config is not None
@@ -239,6 +273,37 @@ def get_weight_qspec(quantization_config: Optional[QuantizationConfig]):
     ]:
         raise ValueError(
             f"Unsupported quantization_spec {quantization_spec} for weight"
+        )
+    # LSQ per-channel weight: inject channel_len from the actual weight shape.
+    from torch.ao.quantization._learnable_fake_quantize import (
+        _LearnableFakeQuantize,
+    )
+
+    if _ctr_is_fakequat(
+        quantization_spec.observer_or_fake_quant_ctr,
+        _LearnableFakeQuantize,
+    ):
+        if weight_node_shape is None:
+            raise ValueError(
+                "LSQ weight quantization requires the weight node shape "
+                "for per-channel channel_len."
+            )
+        ch_axis = quantization_spec.ch_axis
+        channel_len = int(weight_node_shape[ch_axis])
+        extra_args = dict(
+            quantization_spec.observer_or_fake_quant_ctr.p.keywords
+        )
+        extra_args["channel_len"] = channel_len
+        quantization_spec = QuantizationSpec(
+            dtype=quantization_spec.dtype,
+            quant_min=quantization_spec.quant_min,
+            quant_max=quantization_spec.quant_max,
+            qscheme=quantization_spec.qscheme,
+            ch_axis=ch_axis,
+            is_dynamic=False,
+            observer_or_fake_quant_ctr=_LearnableFakeQuantize.with_args(
+                **extra_args
+            ),
         )
     return quantization_spec
 
@@ -311,7 +376,11 @@ def _annotate_linear(
                 continue
             input_qspec_map = {}
             input_qspec_map[input_node] = get_input_act_qspec(quantization_config)
-            input_qspec_map[weight_node] = get_weight_qspec(quantization_config)
+            weight_node_shape = get_weight_shape(gm, weight_node)
+            input_qspec_map[weight_node] = get_weight_qspec(
+                quantization_config,
+                weight_node_shape,
+            )
             if bias_node is not None:
                 input_qspec_map[bias_node] = get_bias_qspec(quantization_config)
             linear_node.meta["quantization_annotation"] = QuantizationAnnotation(
@@ -334,7 +403,11 @@ def _annotate_linear(
             # Annotate node inputs and last node output
             input_qspec_map = {}
             input_qspec_map[input_node] = get_input_act_qspec(quantization_config)
-            input_qspec_map[weight_node] = get_weight_qspec(quantization_config)
+            weight_node_shape = get_weight_shape(gm, weight_node)
+            input_qspec_map[weight_node] = get_weight_qspec(
+                quantization_config,
+                weight_node_shape,
+            )
             if bias_node is not None:
                 input_qspec_map[bias_node] = get_bias_qspec(quantization_config)
             linear_node.meta["quantization_annotation"].input_qspec_map = input_qspec_map
@@ -504,7 +577,11 @@ def _annotate_conv(
             # Annotate conv inputs and pattern output
             input_qspec_map = {}
             input_qspec_map[input_node] = get_input_act_qspec(quantization_config)
-            input_qspec_map[weight_node] = get_weight_qspec(quantization_config)
+            weight_node_shape = get_weight_shape(gm, weight_node)
+            input_qspec_map[weight_node] = get_weight_qspec(
+                quantization_config,
+                weight_node_shape,
+            )
             if bias_node is not None:
                 input_qspec_map[bias_node] = get_bias_qspec(quantization_config)
             conv_node.meta["quantization_annotation"] = QuantizationAnnotation(
@@ -527,7 +604,11 @@ def _annotate_conv(
             # Annotate node inputs and last node output
             input_qspec_map = {}
             input_qspec_map[input_node] = get_input_act_qspec(quantization_config)
-            input_qspec_map[weight_node] = get_weight_qspec(quantization_config)
+            weight_node_shape = get_weight_shape(gm, weight_node)
+            input_qspec_map[weight_node] = get_weight_qspec(
+                quantization_config,
+                weight_node_shape,
+            )
             if bias_node is not None:
                 input_qspec_map[bias_node] = get_bias_qspec(quantization_config)
             conv_node.meta["quantization_annotation"].input_qspec_map = input_qspec_map
@@ -806,7 +887,9 @@ def _annotate_adaptive_avg_pool2d(
                 _annotated=True,
             )
         else:
-            if not _is_annotated(partition):
+            # Local fix (not in upstream QAT.Ultralytics.YOLOv5): partitions are
+            # SourcePartition objects; _is_annotated needs their node list.
+            if not _is_annotated(partition.nodes):
                 assert False
             if module_names is not None and pool_node.name not in module_names:
                 continue

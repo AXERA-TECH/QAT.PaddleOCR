@@ -1,5 +1,14 @@
 # PP-OCRv5 Mobile Rec QAT Smoke 记录
 
+> **归档说明（2026-08-18）**：本记录已归档，不再作为当前 smoke 结论来源。
+> 原因：约 80% 内容（§5/§6 历史 U8/S16、S8 Attention smoke，§8 当前结论，§11 U16/S16
+> 合同）已被现行 U8/S8 路线（训练记录 Exp13-16）替代，对应配置文件已删除；§9 浮点基线、
+> §10 PT2E fake-off 已由主训练记录 §4/§17-20 覆盖。当前 smoke 门禁与结构检查见
+> `docs/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md`（§11/§43.1 等）；
+> 其中 §3 构图修复（conv4 `1x3` kernel）已浓缩进
+> `docs/architecture/ppocrv5v6_architecture_optimizations.md` §2.2(2)。本文件保留原始内容，
+> 仅用于追溯早期 CTC-only smoke 与 Pulsar2 配置生成历史。
+
 ## 1. 范围
 
 本记录只验证 PP-OCRv5 mobile rec 的真实预训练权重转换、Paddle/PyTorch CTC 浮点对齐，以及

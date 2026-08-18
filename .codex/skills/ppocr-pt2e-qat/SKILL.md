@@ -11,27 +11,37 @@ profile, checkpoint, and exported graph as one versioned contract.
 ## Establish The Contract
 
 1. Identify `det` or `rec`, the exact model YAML and converted floating-point weights.
-2. Read the input shape from `Global.d2s_train_image_shape`; keep H/W fixed unless the training
-   profile declares a tested discrete shape contract. PP-OCRv5 rec supports heights 32/48/64 as
-   `16 * height_factor` with width 320; run prepared at every declared height. QuantONNX remains
-   static at the profile `image_shape` and must not inherit the training height symbol.
-3. Start QAT from floating-point pretrained weights whenever the model graph, quantization JSON, or
-   PyTorch export environment changes. Do not resume a prepared checkpoint across graph changes.
-4. Use a QAT training profile. Let explicit CLI values override the profile, and let the profile
-   override floating-point Paddle YAML training defaults.
-5. Keep random data augmentation disabled for the baseline. For detection, use deterministic centered
-   letterbox preprocessing and transform polygons with the same scale and offset.
+ 2. Read the input shape from `Global.d2s_train_image_shape`; keep H/W fixed unless the training
+    profile declares a tested discrete shape contract. PP-OCRv5 rec supports heights 32/48/64 as
+    `16 * height_factor` with width 320; run prepared at every declared height. QuantONNX remains
+    static at the profile `image_shape` and must not inherit the training height symbol.
+ 3. Export ONNX/QuantONNX with `batchSize=1` (static batch 1, deployment inference shape) unless
+    the task or experiment explicitly requires another batch (e.g. training-graph parity check with
+    batch 64, detection multi-batch validation). Recognition training graphs keep a dynamic-batch
+    contract in `export_for_training` (gtc targets are batch-aligned), but the exported deployment
+    graph is fixed at batch 1.
+ 4. Start QAT from floating-point pretrained weights whenever the model graph, quantization JSON, or
+    PyTorch export environment changes. Do not resume a prepared checkpoint across graph changes.
+ 5. Use a QAT training profile. Let explicit CLI values override the profile, and let the profile
+    override floating-point Paddle YAML training defaults.
+ 6. Keep random data augmentation disabled for the baseline. For detection, use deterministic centered
+    letterbox preprocessing and transform polygons with the same scale and offset.
 
 ## Train
 
 1. Run one real-data epoch through prepare, forward/backward, validation, checkpoint save, and strict
    reload before a full run.
 2. Use low-learning-rate fine-tuning. Start with the checked-in profile; compare learning rates only
-   after the end-to-end baseline passes.
-3. Keep observers enabled throughout training. During validation, disable observers temporarily and
+   after the end-to-end baseline passes. QAT is a quantized-domain fine-tune of pretrained weights:
+   the Paddle floating-point training learning rate (e.g. 5e-4) is a reference only and must not be
+   used directly for QAT (current baseline: lr 3e-5, warmup 5, Cosine).
+3. Use **AdamW or SGD only** (`profile.training.optimizer: AdamW|SGD`). Never use `Adam`: its L2
+   weight decay combines with LSQ gradient scaling (`use_grad_scaling`) and wrongly decays the
+   learnable scale/zero_point quant parameters, which diverges early in QAT.
+4. Keep observers enabled throughout training. During validation, disable observers temporarily and
    restore them afterward. Do not set `--observer-freeze-epoch` for the baseline.
-4. Keep QAT EMA and DDP out of the baseline. Add them only through controlled metric comparisons.
-5. Reject missing/non-finite gradients and non-finite loss immediately.
+5. Keep QAT EMA and DDP out of the baseline. Add them only through controlled metric comparisons.
+6. Reject missing/non-finite gradients and non-finite loss immediately.
 
 ## Localize Accuracy Loss
 

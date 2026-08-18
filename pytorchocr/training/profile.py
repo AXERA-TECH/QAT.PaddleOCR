@@ -33,6 +33,11 @@ _TRAINING_KEYS = {
     "multi_scale_training",
     "float_accuracy_baseline",
     "epoch2_max_accuracy_drop",
+    "lsq",
+    "insert_identity_bn",
+    "bn_statistics_steps",
+    "bn_training_momentum",
+    "freeze_bn_stats",
     "kd",
     "teacher_weights",
     "teacher_model_config",
@@ -50,6 +55,11 @@ _RESUME_CONTRACT_KEYS = (
     "qat_config_sha256",
     "torch_version",
     "reparameterized",
+    "lsq",
+    "insert_identity_bn",
+    "bn_statistics_steps",
+    "bn_training_momentum",
+    "freeze_bn_stats",
     "kd",
     "teacher_model_config",
     "kd_mode",
@@ -96,7 +106,7 @@ class TrainingProfile:
             )
 
 
-def _validate_training_values(training):
+def _validate_training_values(training, qat=False):
     positive_ints = ("epochs", "batch_size", "save_every")
     for key in positive_ints:
         if key in training and (
@@ -129,6 +139,13 @@ def _validate_training_values(training):
     ):
         raise ValueError(
             "Training profile optimizer must be Adam, AdamW, SGD, or Momentum."
+        )
+    if qat and "optimizer" in training and str(training["optimizer"]).lower() in (
+        "adam",
+    ):
+        raise ValueError(
+            "QAT training profile optimizer must be AdamW or SGD; Adam's L2 "
+            "weight decay corrupts LSQ learnable scale/zero_point parameters."
         )
     if "momentum" in training and (
         not isinstance(training["momentum"], (int, float))
@@ -188,6 +205,9 @@ def _validate_training_values(training):
         "reparameterize",
         "rec_ctc_backbone_grad",
         "multi_scale_training",
+        "lsq",
+        "insert_identity_bn",
+        "freeze_bn_stats",
         "kd",
     ):
         if key in training and not isinstance(training[key], bool):
@@ -195,6 +215,14 @@ def _validate_training_values(training):
     for key in ("kd_weight", "kd_neck_weight", "kd_backbone_weight"):
         if key in training and training[key] is not None and training[key] < 0:
             raise ValueError(f"Training profile {key} must be non-negative.")
+    if "bn_statistics_steps" in training and training["bn_statistics_steps"] <= 0:
+        raise ValueError("Training profile bn_statistics_steps must be positive.")
+    if "bn_training_momentum" in training:
+        value = training["bn_training_momentum"]
+        if value is not None and not 0.0 < value <= 1.0:
+            raise ValueError(
+                "Training profile bn_training_momentum must be in (0, 1]."
+            )
     if "kd_temperature" in training and training["kd_temperature"] <= 0:
         raise ValueError("Training profile kd_temperature must be positive.")
     if "kd_mode" in training and training["kd_mode"] not in (
@@ -240,7 +268,7 @@ def load_training_profile(path):
         raise ValueError(
             f"Unknown training settings: {sorted(unknown_training)}"
         )
-    _validate_training_values(training)
+    _validate_training_values(training, qat=bool(config.get("qat", False)))
 
     qat_config = config.get("qat_config")
     if qat_config is not None:
@@ -270,6 +298,38 @@ def profile_value(cli_value, profile, key, fallback=None):
     if profile is not None and key in profile.training:
         return profile.training[key]
     return fallback
+
+
+def copy_run_configs(output_dir, *, model_config, training_profile=None, qat_config=None, teacher_model_config=None):
+    """Copy the training, network and quantization configs into the run output directory.
+
+    Configs are copied verbatim (``copy2``) so each run directory is
+    self-contained and reproducible without relying on the source tree.
+    Returns a list of ``(source, destination)`` pairs that were copied.
+    """
+    import shutil
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sources = {
+        "model_config": model_config,
+        "training_profile": training_profile,
+        "qat_config": qat_config,
+        "teacher_model_config": teacher_model_config,
+    }
+    copied = []
+    for name, source in sources.items():
+        if source is None:
+            continue
+        source_path = Path(source)
+        if not source_path.is_file():
+            raise FileNotFoundError(
+                f"Cannot copy {name} for the run: {source_path}"
+            )
+        destination = output_dir / source_path.name
+        shutil.copy2(source_path, destination)
+        copied.append((str(source_path), str(destination)))
+    return copied
 
 
 def epoch2_accuracy_guard(
@@ -353,7 +413,7 @@ def _same_relocated_model_config(saved, current):
 def validate_resume_contract(saved_metadata, current_metadata):
     mismatches = []
     for key in _RESUME_CONTRACT_KEYS:
-        if key in ("rec_ctc_backbone_grad", "kd"):
+        if key in ("rec_ctc_backbone_grad", "lsq", "insert_identity_bn", "kd"):
             saved = bool(saved_metadata.get(key, False))
             current = bool(current_metadata.get(key, False))
         elif key == "rec_graph":

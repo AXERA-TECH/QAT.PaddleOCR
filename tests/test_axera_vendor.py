@@ -237,6 +237,70 @@ class AxeraVendorTest(unittest.TestCase):
             atol=0,
         )
 
+    def test_s16_domain_dyadic_scalars_use_s16_qspec(self):
+        """Scalars on S16-domain Mul/Add nodes must be int16, not global S8.
+
+        The AX650 TENG pixel-repeat packing requires (p.n * p.ksize) % 256 == 0;
+        for the W*C=240 downsampling layout an int8 scalar (1920) fails while
+        an int16 scalar (3840) passes.
+        """
+
+        class AffineModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.scale = nn.Parameter(torch.tensor([1.0]))
+                self.bias = nn.Parameter(torch.tensor([0.1]))
+
+            def forward(self, inputs):
+                return inputs * self.scale + self.bias
+
+        inputs = torch.randn(1, 3, 4, 4)
+        with tempfile.TemporaryDirectory() as directory:
+            config = json.loads((ROOT_DIR / "configs/qat/base_u8s8.json").read_text())
+            config["regional_configs"] = [
+                {
+                    "module_names": ["mul"],
+                    "module_type": "mul",
+                    "module_config": {
+                        "is_symmetric": True,
+                        "output_is_symmetric": True,
+                        "input": {
+                            "dtype": "S16",
+                            "qmin": -32767,
+                            "qmax": 32767,
+                        },
+                        "output": {
+                            "dtype": "S16",
+                            "qmin": -32767,
+                            "qmax": 32767,
+                        },
+                    },
+                }
+            ]
+            config_path = Path(directory) / "u8s8_s16_mul.json"
+            config_path.write_text(json.dumps(config))
+            quantizer = load_axera_quantizer(str(config_path))
+            prepared, _ = prepare_qat_model(
+                AffineModel(),
+                (inputs,),
+                quantizer,
+            )
+        mul_node = next(
+            node
+            for node in prepared.graph.nodes
+            if node.op == "call_function" and node.target == torch.ops.aten.mul.Tensor
+        )
+        annotation = mul_node.meta["quantization_annotation"]
+        scalar_qspecs = [
+            qspec
+            for input_node, qspec in annotation.input_qspec_map.items()
+            if input_node.op == "get_attr"
+        ]
+        self.assertEqual(len(scalar_qspecs), 1)
+        self.assertEqual(scalar_qspecs[0].dtype, torch.int16)
+        self.assertEqual(scalar_qspecs[0].quant_min, -32767)
+        self.assertEqual(scalar_qspecs[0].quant_max, 32767)
+
     def test_nonfinite_causal_mask_stays_float_until_softmax(self):
         class MaskedSoftmaxModel(nn.Module):
             def forward(self, scores):

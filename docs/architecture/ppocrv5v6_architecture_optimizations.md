@@ -236,6 +236,11 @@ out = conv1x1(conv4(concat(h, z))) # 拼接跳跃连接
   (rnn.py:218-220),SVTR/guide 分支的梯度不回流 backbone——这是 v4 引入的
   GTC-NRTR"Attention 指导 CTC"策略在 v5 的延续:NRTR 头提供文本上下文先验,
   CTC 主路径通过 detach 保持稳定的特征学习;
+- **`conv1`/`conv4` 的 kernel_size 从 YAML 读取(v5 rec 为 `[1,3]`,padding 同步)**:
+  上游 route2 曾因 `EncoderWithSVTR.conv4` 未传 YAML kernel 而退回 `ConvBNLayer`
+  默认 3x3,导致 Paddle 权重 `[60,960,1,3]` 与 PyTorch `[60,960,3,3]` shape 失配;
+  已与 Paddle 对齐并有回归测试锁定(修复溯源:
+  `docs/axera_qat/archive/smoke/ppocrv5_mobile_rec_qat_smoke.md` §3);
 - `hidden_dims=120`,SVTR Block(rec_svtrnet.py:215)使用 fused QKV
   `nn.Linear(dim, dim*3)`(rec_svtrnet.py:170),注意力公式(rec_svtrnet.py:196-211):
 
@@ -385,7 +390,165 @@ class 数 18710,即 18708 字典字符 + space + CTC blank),small/medium 单模�
 | 识别 Neck | SVTR 拼接跳连(use_guide) | 同 v4 | LightSVTR(1x7 局部 + 加性跳连) |
 | 识别训练策略 | DF、GTC-NRTR、Multi-Scale、DKD | DF、GTC-NRTR、Multi-Scale | 同 v5 |
 
-## 5. 参考与说明
+## 5. BN 与 QAT:官方权重、重参化与量化路径
+
+本节回答三个工程问题:Paddle 预训练权重里 BN 是否保留、官方重参化后的卷积是否还有 BN、
+官方 QAT 如何插入 fake quant 以及 QAT 模型如何部署。结论先行:
+
+1. **预训练权重完整保留 BN**(训练态权重,BN 未融合进 Conv);
+2. **官方重参化(`rep()`)后的卷积是纯 `Conv2D`,不含 BN**——BN 在融合时被吸收进
+   权重/bias,部署图 BN=0;
+3. **官方 QAT 在训练图上插入 fake quant 算子,且 QAT 导出时跳过重参化**——多分支
+   训练图原样量化部署,不存在"QAT 后再融合卷积权重"的官方步骤。
+
+### 5.1 预训练权重保留完整 BN(未融合进 Conv)
+
+对仓库内三个官方 `.pdparams` 直接检查键名(2026-08-18):
+
+| 权重 | 总键数 | BN 相关键 | `bn.weight/bias/_mean/_variance` 组数 |
+| --- | ---: | ---: | ---: |
+| `PP-OCRv5_mobile_rec_pretrained.pdparams` | 969 | 556 | 151 |
+| `PP-OCRv5_mobile_det_pretrained.pdparams` | 906 | 562 | 150 |
+| `PP-OCRv6_small_rec_pretrained.pdparams` | 423 | 226 | 58 |
+
+- 键名形如 `backbone.conv1.bn.weight/.bias/_mean/_variance`,且**每个分支都有 BN**,
+  包括 `LearnableRepLayer` 的 identity 分支(`backbone.blocks2.0.dw_conv.identity._mean`)
+  与 `conv_kxk`/`conv_1x1` 分支——多分支重参化训练结构的 BN 全部在;
+- BN 数值是真实训练统计量,非退化占位:如 v5 rec `backbone.conv1.bn.weight`
+  mean≈0.813、`_variance` mean≈0.150、identity 分支 `_variance` max≈3.22;
+- 因此官方发布的是**训练态权重**;BN 融合只发生在推理导出阶段(见 5.2)。
+
+### 5.2 官方重参化:融合后的卷积不含 BN
+
+v5 `LearnableRepLayer.rep()`(`references/PaddleOCR/ppocr/modeling/backbones/rec_lcnetv3.py`,L237)流程:
+
+```text
+_get_kernel_bias()  各分支 BN 吸收 + 求和(rec_lcnetv3.py:267)
+  -> 新建裸 Conv2D,set kernel/bias(rec_lcnetv3.py:241-250)
+  -> del conv_kxk / conv_1x1 / identity(rec_lcnetv3.py:247-253)
+  -> is_repped = True
+```
+
+BN 融合公式(`_fuse_bn_tensor`,rec_lcnetv3.py:286-317),对 4×kxk、1x1(补零到 kxk)、
+identity(单位核按 BN 缩放)统一处理:
+
+```text
+t     = γ / √(var + ε)                 # 逐通道
+W'    = W · t
+b'    = β − μ · γ / √(var + ε)
+kernel_reparam = Σ_kxk W' + pad(W'_1x1) + W'_identity
+bias_reparam   = Σ_branch b'
+```
+
+重参化后的 forward(rec_lcnetv3.py:215-219)只有
+`reparam_conv -> LAB -> (Act)`,**没有任何 BN 节点**。v6 同样
+(`references/PaddleOCR/ppocr/modeling/backbones/rec_lcnetv4.py`):
+`Conv2D_BN.fuse()`(rec_lcnetv4.py:206)返回裸 Conv;`ConvBNAct.rep()`
+(rec_lcnetv4.py:266)**`del self.bn`** 且 forward 在 repped 时跳过 BN
+(rec_lcnetv4.py:259-260);`StemBlock.rep()`(rec_lcnetv4.py:331)、
+`RepDWConv.rep()`(rec_lcnetv4.py:398)均只保留 `reparam_conv`。
+
+官方导出对**非 QAT** 模型强制重参化
+(`references/PaddleOCR/ppocr/utils/export_model.py:360-363`):
+
+```text
+if arch_config["model_type"] != "sr" and not skip_reparameterization:
+    for layer in model.sublayers():
+        if hasattr(layer, "rep") and not getattr(layer, "is_repped", False):
+            layer.rep()
+```
+
+即官方推理模型 = 全融合、BN=0 的部署图(与本仓库 QuantONNX 导出合同 BN=0 一致)。
+
+### 5.3 官方 QAT:在训练图上插入 fake quant
+
+路径约定:本节 `qat.py` 指 `references/PaddleOCR/ppocr/utils/qat.py`,
+`export_model.py` 指 `references/PaddleOCR/ppocr/utils/export_model.py`,
+`export_qat_onnx.py` 指 `references/PaddleOCR/tools/export_qat_onnx.py`;
+Paddle 3.0 内置模块路径以 `site-packages/` 前缀标注(非仓库文件)。
+
+QAT 入口是 `references/PaddleOCR/ppocr/utils/qat.py::apply_qat`(L441),分两层:
+
+**(1) `quanter.quantize(model)`(Paddle 3.0 内置 `paddle.quantization.imperative.qat`
+的 `ImperativeQuantAware`,位于 `site-packages/paddle/quantization/imperative/qat.py`,
+quantize 见 L236-294)**
+
+- 把 `Conv2D/Linear/Conv2DTranspose` 替换为 `QuantizedConv2D` 等量化层
+  (`site-packages/paddle/nn/quant/quant_layers.py::QuantizedConv2D`,
+  forward 见 L615),内部含两个 fake quant:
+  - `_fake_quant_weight`:权重 **per-channel S8**(`channel_wise_abs_max`,axis=0);
+  - `_fake_quant_input`:激活 **per-tensor**(默认 `moving_average_abs_max`);
+- `_quantize_outputs.apply`(同 `imperative/qat.py` 的 `ImperativeQuantizeOutputs`,
+  L448)给目标层包 `MAOutputScaleLayer`/`FakeQuantMAOutputScaleLayer`,
+  统计输出 out_scale。
+
+**(2) PaddleOCR 自研 U8 affine 扩展(`qat.py::_apply_u8_qat`,L271-316)**
+
+- `qat.py::U8AffineFakeQuant`(L20):per-tensor U8 affine fake quant——observer 为
+  moving min/max,`scale=(max−min)/255`、`zp=clip(round(−min/scale), 0, 255)`;
+  forward 是 STE 伪量化:
+
+  ```text
+  y = (round_even(clip(x/scale + zp, 0, 255)) − zp) · scale   # 取整梯度 detach
+  ```
+
+- 按算子 pattern 插入(`qat.py::_pattern_terminal`,L253):识别
+  `ConvBNLayer.bn`、`ConvBNAct.act`、`Conv2D_BN.bn`、`Head.conv_bn1`、
+  `DilatedReparamBlock` 各分支 BN 作为终点,**输出 fake quant 挂在 BN/Act 之后**
+  (`qat.py::U8AffineOutputQuantWrapper`,L141),输入 fake quant 挂在量化 Conv 之前
+  (`conv._fake_quant_input`);
+- `qat.py::_share_u8_activation_domains`(L319):hook 追踪 eval/train 两次 forward,
+  若量化 Conv 的输入直接来自另一个 QAT 输出域(如 Concat 下游),把输入 fake quant
+  替换为 `nn.Identity()` 共享上游输出域——与本仓库 Concat 共享量化域同一思路;
+- `qat.py::freeze_qat_observers`(L432):训练结束后关 observer(等价 observer freeze)。
+
+### 5.4 QAT 导出:跳过重参化,多分支量化图直接部署
+
+`references/PaddleOCR/ppocr/utils/export_model.py:378-384`:
+
+```text
+model = dynamic_to_static(model, arch_config, logger, input_shape,
+                          skip_reparameterization=quanter is not None)
+```
+
+- **只要启用 QAT(quanter 非 None)就跳过 `layer.rep()`**,多分支训练图原样进入量化
+  导出:`quanter.save_quantized_model(model, save_path)`(export_model.py:411)把
+  每条分支(各自带独立 fake quant 的 QuantizedConv2D)存为量化推理模型,分支独立量化、
+  独立 out_scale;
+- `tools/export_qat_onnx.py`(QAT checkpoint → ONNX QDQ)同样是**未重参化**流程:
+  `strip_fake_quant` 剥掉 fake quant、收集各层 qparams(权重 per-channel threshold、
+  激活 scale/zp、输出 scale),导出 float ONNX 后在图上重建 Q/DQ 节点
+  (含同 qparam 冗余 QDQ 清理),全程没有卷积权重融合;
+- **结论:Paddle 官方 QAT 不融合卷积权重**。多分支量化图整体部署,分支数多、部署效率
+  低,但没有"QAT 后折叠"这一步;若要在 Paddle 上做 QAT 后折叠,需要自行合并多分支
+  量化域——这正是本仓库 exp9→exp14b 路线与 `ppocr-quantized-domain-fold` skill
+  解决的问题(见 `docs/axera_qat/plans/train_noreparam_infer_reparam.md`)。
+
+### 5.5 与本仓库 PyTorch 实现的对照
+
+| 维度 | Paddle 官方 QAT | 本仓库 PyTorch QAT |
+| --- | --- | --- |
+| QAT 训练图 | 多分支原图 + fake quant(**不 rep**) | ①rep 后单分支(exp13/15/16)②多分支训练、推理折叠(exp9/14b) |
+| 权重量化 | per-channel S8(channel_wise_abs_max) | per-channel S8/S16(LSQ 可学习 scale) |
+| 激活量化 | per-tensor U8 affine(moving min/max) | U8/U16 per-tensor(MinMax/LSQ) |
+| QAT→部署 | 多分支量化图直接部署,无融合步骤 | `convert_pt2e` 后导出 QDQ;折叠路线用量化域折叠 finetune |
+| 重参化 | 仅浮点部署路径,融合后纯 Conv 无 BN | `rep()` 与 Paddle 逐行对应,同样纯 Conv 无 BN |
+
+补充说明:
+
+- 本仓库的 `rep()`(pytorchocr/modeling/backbones/rec_lcnetv3.py)与 Paddle 一致:
+  融合公式、分支求和、裸 `nn.Conv2d`、`reparam_conv -> LAB -> Act`,无 BN;
+- `insert_identity_bn`(融合后保留一个实测统计初始化的 BN)是**本仓库自己的扩展**
+  (QARepVGG insert_bn 风格),Paddle 原始代码没有该设计;exp7/exp8 系列实验证明保留的
+  BN 训练中会漂移导致导出折叠爆炸(γ/√(var+ε) 放大至 2000+),已放弃,正式路线回到与
+  Paddle 一致的"重参化 = 纯 Conv、无 BN"(详见
+  `docs/axera_qat/records/reparameterization_qat_issues.md` 问题 2/3/8);
+  对照:YOLOv6 v0.3.0 QARepVGG 的"求和后 BN 全程存在"结构(多分支训练 → 折叠保留
+  BN → QAT)不存在该失配,是问题 2 候选修复 3 的实现来源,见同记录问题 13 与
+  `qarepvgg_quantization_reference.md` §8.4;
+- 权重检查命令与 QAT 机制细节见 2026-08-18 排查记录;本仓库 QAT 合同见 AGENTS.md。
+
+## 6. 参考与说明
 
 - 官方 v4 blog:`references/PaddleOCR/docs/version2.x/ppocr/blog/PP-OCRv4_introduction.md`
   (https://www.paddleocr.ai/latest/version2.x/ppocr/blog/PP-OCRv4_introduction.html );
@@ -393,5 +556,8 @@ class 数 18710,即 18708 字典字符 + space + CTC blank),small/medium 单模�
   `PP-OCRv6/PP-OCRv6.md`(核心技术升级部分,含官方公式与对比表);
 - 本文代码出处均为官方实现:`references/PaddleOCR/ppocr/modeling/...:行号`,
   数据管线:`references/PaddleOCR/ppocr/data/...:行号`;
+- 官方 QAT 机制:`references/PaddleOCR/ppocr/utils/qat.py`、
+  `references/PaddleOCR/tools/export_qat_onnx.py`、`ppocr/utils/export_model.py`;
+  Paddle 3.0 内置 `paddle.quantization`(非仓库文件);
 - 仓库侧部署裁剪(检测仅 shrink、识别仅 CTC)与本仓库 QAT 合同见 AGENTS.md,
   不在官方实现范围内。

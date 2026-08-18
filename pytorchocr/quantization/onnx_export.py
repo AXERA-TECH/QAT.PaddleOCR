@@ -13,6 +13,12 @@ from torch.onnx._internal.exporter import _schemas
 from torch import nn
 
 from .validation import constant_tensors, qparam_key
+from .onnx_folding import (
+    fold_conv_qdq_bn,
+    replace_qdq_bn_with_affine,
+    fold_static_scalar_mul,
+    fold_static_scalar_add,
+)
 
 
 _BATCH_NORM_SIGNATURE = _schemas.OpSignature.from_opschema(
@@ -295,6 +301,50 @@ def insert_identity_for_requantize_dq_q(model):
     return inserted
 
 
+def swap_scalar_first_quantized_muls(model):
+    """Swap operands of quantized Mul nodes whose first input is a static scalar.
+
+    The Axera AX650 backend's S16 FMA Mul builder expects the tensor operand
+    first and the per-tensor scalar operand second (its pixel-repeat packing
+    applies to the second input). The exported `scale * x` lab Muls therefore
+    produce `Mul(DQ(int8 scalar), DQ(S16 tensor))`, which hits the TENG
+    alignment assert (`(p.n * p.ksize) % 256 == 0`) during Pulsar2 precision
+    analysis. Elementwise float multiplication is commutative (and these
+    tensors are finite), so swapping is an exact identity; each Q/DQ pair
+    stays attached to its operand. Returns the number of swapped Muls.
+    """
+    initializers = {
+        initializer.name: initializer for initializer in model.graph.initializer
+    }
+    producers = {
+        output_name: node
+        for node in model.graph.node
+        for output_name in node.output
+    }
+
+    def is_static_scalar(name, depth=0):
+        if depth > 3:
+            return False
+        if name in initializers:
+            dims = list(initializers[name].dims)
+            return len(dims) == 0 or (len(dims) == 1 and dims[0] == 1)
+        node = producers.get(name)
+        if node is None:
+            return False
+        if node.op_type in ("QuantizeLinear", "DequantizeLinear"):
+            return is_static_scalar(node.input[0], depth + 1)
+        return False
+
+    swapped = 0
+    for node in model.graph.node:
+        if node.op_type != "Mul" or len(node.input) < 2:
+            continue
+        if is_static_scalar(node.input[0]) and not is_static_scalar(node.input[1]):
+            node.input[0], node.input[1] = node.input[1], node.input[0]
+            swapped += 1
+    return swapped
+
+
 def name_dynamic_input_axes(model, dynamic_axis_names):
     """Give already-symbolic ONNX input dimensions stable public names."""
     renamed = 0
@@ -513,12 +563,22 @@ def export_onnx(
     folded_zero_point_casts = fold_constant_zero_point_casts(onnx_model)
     removed_requant = remove_exact_redundant_dq_q(onnx_model)
     inserted_requant_identity = insert_identity_for_requantize_dq_q(onnx_model)
+    swapped_scalar_muls = swap_scalar_first_quantized_muls(onnx_model)
+    # folded_conv_bn = fold_conv_qdq_bn(onnx_model)
+    # replaced_add_mul_bn = replace_qdq_bn_with_affine(onnx_model)
+    # folded_lab_mul = fold_static_scalar_mul(onnx_model)
+    # folded_lab_add = fold_static_scalar_add(onnx_model)
     if (
         renamed_dynamic_axes
         or specialized_static_axes
         or folded_zero_point_casts
         or removed_requant
         or inserted_requant_identity
+        or swapped_scalar_muls
+        # or folded_conv_bn
+        # or replaced_add_mul_bn
+        # or folded_lab_mul
+        # or folded_lab_add
     ):
         onnx.save(onnx_model, str(output_path))
     if renamed_dynamic_axes:
@@ -536,6 +596,18 @@ def export_onnx(
             "inserted "
             f"{inserted_requant_identity} Identity node(s) for non-identical DQ -> Q"
         )
+    if swapped_scalar_muls:
+        print(
+            f"swapped {swapped_scalar_muls} scalar-first quantized Mul operand pair(s)"
+        )
+    # if folded_conv_bn:
+    #     print(f"folded {folded_conv_bn} Conv-BN pair(s)")
+    # if replaced_add_mul_bn:
+    #     print(f"replaced {replaced_add_mul_bn} Add/Mul-BN pair(s) with Affine")
+    # if folded_lab_mul:
+    #     print(f"folded {folded_lab_mul} static scalar Mul(s) into DQ scale")
+    # if folded_lab_add:
+    #     print(f"folded {folded_lab_add} static scalar Add(s)")
     onnx.checker.check_model(onnx_model, full_check=True)
     return onnx_model
 

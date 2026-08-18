@@ -1451,3 +1451,959 @@ QDQ 门禁: blocked（19 个 BatchNormalization，exp4 非重参数化图已知�
 2. 之后再做 KD 变量：Exp5 = 修复 observer + KD（对照 Exp3 修复 observer 后的无 KD 基线）；
 3. 中间层 KD（ctc_neck/backbone_out）保持关闭，待输出头 KD 在修复 observer 后确认有效再
    按单变量规则逐步启用。
+
+## 30. Exp5：LSQ 可学习步长量化 QAT
+
+2026-08-10 建立 Exp5。该实验从同一完整浮点权重重新 prepare，不恢复 Exp2-4 checkpoint；
+相对 Exp3 只把量化器换成 LSQ（单变量：`_LearnableFakeQuantize` + `"lsq": true`）：
+
+```text
+run:       runs/exp5_ppocrv5_mobile_rec_u16s16_lsq/
+tmux:      ppocrv5-rec-u16s16-exp5-lsq
+device:    物理 GPU 3；CUDA_VISIBLE_DEVICES=3；进程内 device cuda:0
+weights:   weights/ptocr_v5_mobile_rec_full.pth
+profile:   configs/qat/training/ppocrv5_mobile_rec_u16s16_sgd_dynamic_height_exp5_lsq.yml
+qat_config: configs/qat/ppocrv5_mobile_rec_u16s16_attn_s16_lsq.json（"lsq": true）
+graph:     pretrained_train; CTC + CTC neck + GTC/NRTR
+qat:       U16 activation + S16 weight，LSQ 可学习 scale（use_grad_scaling=True）
+reparam:   false（同 Exp3/4）
+optimizer: SGD, momentum=0.9, lr=1.5e-5, warmup=0
+seed:      20260806（同 Exp3/4）
+```
+
+### 30.1 实现要点
+
+- 复用 torch 内置 `_LearnableFakeQuantize`（Axera QAT.Ultralytics.YOLOv5 方案），
+  `ax_quantizer_lsq.py` vendored；QAT JSON 顶层 `"lsq": true` 由 `load_axera_quantizer` 选择；
+- 训练入口 `--lsq`/profile `lsq` + `_prepare_lsq_training`：weight 静态统计初始化 →
+  `enable_learn` → act 统计 pass（disable_fake_quant + enable_observer）→
+  enable_fake_quant + disable_observer（YOLOv5 epoch-0 两阶段，resume 时仅 re-enable）；
+- **修复 1（顺序）**：`enable_learn` 必须先于 `initialize_weight_observers`——先 enable 会
+  使 weight scale 保持默认 1.0，量化塌缩（forward NaN）；
+- **修复 2（发散）**：LSQ scale 梯度巨大（无归一化时 ~858）且初始 scale 被 `eps=2**-12`
+  clamp 过小，数步内 scale 发散为 NaN；启用 `use_grad_scaling=True`
+  （LSQ 论文 `1/√(N·Qp)` 归一化）后训练稳定。
+
+### 30.2 结果
+
+| Epoch | Val acc | Val CTC | Norm edit | Guard |
+| --- | ---: | ---: | ---: | --- |
+| 1 | 0.164661 | 14.307 | - | 未触发 |
+| 2 | 0.289841 | 9.064 | 0.628007 | drop 0.3038 > 0.10，停止 |
+
+epoch-2 精度门禁触发并自动停止：
+
+```text
+float accuracy baseline:  0.5936446798
+validation accuracy:      0.289841（epoch 2）
+accuracy drop:            0.3038035628
+allowed drop:             0.10
+status:                   stopped by epoch-2 accuracy guard
+```
+
+### 30.3 对比与结论
+
+| 实验 | 量化器 | epoch-1 acc | epoch-2 acc | 结论 |
+| --- | --- | --- | --- | --- |
+| Exp3 | 统计 observer | 0.0385 | 0.3899 | 关重参化大幅恢复 |
+| Exp4 | 统计 observer + KD | 0.0207 | 0.3717 | KD 未恢复 |
+| Exp5 | **LSQ** | 0.1647 | 0.2898 | 链路稳定但 2 epoch 内未超统计基线 |
+
+- LSQ 训练链路已稳定（use_grad_scaling 修复后 2 epoch 无 NaN）；epoch-1 acc 0.1647 明显高于
+  Exp3/4，但 epoch-2 只到 0.2898，低于 Exp3 的 0.3899，未通过门禁；
+- LSQ 的 scale 从统计值（被 `eps=2**-12` clamp）起步，2 epoch 内尚未学习到合适 scale；
+  LSQ 通常需要更多轮次收敛，但 epoch-2 门禁（0.10）在当前合同下拦截；
+- 与统计 observer 一样，`eps=2**-12` 仍限制 scale 下限；LSQ 的优势在于学习阶段可让 scale
+  离开该下限，但 2 epoch 内未见收益。
+
+### 30.4 下一步建议
+
+1. LSQ 继续训练需要放宽 epoch-2 门禁或先做 scale 初始化改进（如 eps 按域配置、
+   scale 学习率倍率）；
+2. 对照实验：LSQ + 修复 eps（改小）验证 scale 初始化影响；
+3. 若 LSQ 收益不明显，以 Exp3（统计 observer, reparam=false）为正式 QAT 基线推进。
+
+## 31. Exp8 系列:重参化保留 BN(conv+bn 结构)QAT 训练
+
+2026-08-11 起。核心目标:解决 reparam=true 下 QAT 精度崩溃问题,方法为
+**融合 conv + 保留 BN**结构(keep-BN)。问题全景、根因与方案演进见
+`records/reparameterization_qat_issues.md`;结构方案细节见
+`plans/rep_keep_bn_plan.md`;QARepVGG/YOLOv6 参考见
+`architecture/qarepvgg_quantization_reference.md`。
+
+### 31.1 Exp8:方案 2 实测统计初始化(首个 reparam=true 非零结果)
+
+```text
+run:       runs/exp8_ppocrv5_mobile_rec_u16s16_adamw_lsq_warmup_keep_bn/
+tmux:      ppocrv5-rec-u16s16-exp8-scheme2
+profile:   configs/qat/training/ppocrv5_mobile_rec_u16s16_sgd_dynamic_height_exp8_lsq_warmup_keep_bn.yml
+qat:       LSQ + AdamW + warmup5 + reparam=true + insert_identity_bn
+bn 初始化: 实测统计(200 步 EMA)→ γ=√(var+ε)/β=mean,running stats=实测
+```
+
+| epoch | val_acc | norm_edit | val_CTCLoss |
+| --- | ---: | ---: | ---: |
+| 44(best) | 0.5450 | 0.7906 | 4.82 |
+| 50 | 0.5364 | 0.7913 | 4.71 |
+
+- **首个 reparam=true 下 val_acc 显著非零**(此前所有 reparam 方案恒 0);
+- **问题**:best.pt 导出后 converted 评估 acc=0.0(γ/var 失配导致
+  fake-off NaN,BN 折叠爆炸)——见问题 3。
+
+### 31.2 Exp8b:bn_training_momentum=0.9(部分缓解,方向反了)
+
+```text
+run:       runs/exp8b_ppocrv5_mobile_rec_u16s16_adamw_lsq_warmup_keep_bn_mom09/
+tmux:      ppocrv5-rec-u16s16-exp8b-mom09
+配置:      exp8 profile + bn_training_momentum: 0.9
+```
+
+| epoch | val_acc | norm_edit | val_CTCLoss |
+| --- | ---: | ---: | ---: |
+| 44(best) | 0.5450 | 0.7906 | 4.82 |
+| 50 | 0.5364 | 0.7913 | 4.71 |
+
+- converted 评估 acc=0.2638(exp8 的 0.0 改善,不再 NaN);
+- **PyTorch BN momentum 语义实证**:momentum=0.9 → running 90% 跟随 batch
+  (极度震荡),是反效果;应 0.01 或冻结;
+- γ/var 失配未根治(97 通道 |γ/√(var+ε)|>10,max 2098)。
+
+### 31.3 Exp8c:Variance Floor 1e-4(失败,EMA 覆盖)
+
+```text
+run:       runs/exp8c_ppocrv5_mobile_rec_u16s16_adamw_lsq_warmup_keep_bn_varfloor/
+配置:      exp8 profile 移除 momentum + var floor 1e-4(方案 1)
+```
+
+- converted acc=0.0534(比 exp8b 更差);
+- **根因**:var floor 只在统计 pass 初始化瞬间生效,训练中 BN 的 EMA
+  (默认 momentum 0.1)把极小 var 通道(1e-11)又拉回,54 个通道训练后
+  var<1e-4,折叠系数照常放大(2144)——方案 1 单独无效;
+- epoch24 终止。
+
+### 31.4 Exp8d:冻结 kept BN running stats(方案 2,已终止)
+
+```text
+run:       runs/exp8d_ppocrv5_mobile_rec_u16s16_adamw_lsq_warmup_keep_bn_freeze/
+tmux:      ppocrv5-rec-u16s16-exp8d-freeze
+配置:      exp8 profile + freeze_bn_stats: true(var floor 1e-4 保留)
+bn 冻结:   PT2E 图节点 momentum args[6]=0.0(Trainer 每次切回 train 重 pin)
+```
+
+- 2 epoch 验证:running_mean 漂移恒 0.00(冻结生效)、γ 可学(2.1e-3)、
+  训练正常、245 回归通过;
+- **终止**:用户 2026-08-13 决定转向"训练非重参化、推理重参化"路线
+  (exp9 起),exp8d 在 epoch9 终止(best val_acc=0.1006),未完成 50 epoch;
+- 该 keep-BN 方案最终被量化域折叠(§32-38)取代。
+
+### 31.5 工具与基础设施
+
+- `tools/eval.py`:支持 --onnx/--pt(prepared/converted)/对齐模式
+  (余弦/MAE/MSE/argmax),用于导出对齐验证与 checkpoint 评估;
+- `numpy_error_stats` 新增 mse/cosine_similarity;
+- `convert_prepared_model` 保留 graph_role/model_type/output_names;
+- train.py 日志浮点统一 6 位小数(`_round_summary_floats`);
+- runs/ 清理中间 epoch checkpoint(25G → 5.0G)。
+
+## 32. Exp9:非重参化完整训练(50 epoch)
+
+2026-08-12 启动。与 Exp8 系列相反,**训练图不重参化**(reparam=false),多分支
+结构完整保留,从 pretrained 浮点权重训练。目标:验证非重参化 QAT 训练稳定性,
+为"训练非重参化、推理重参化"方案提供稳定权重。
+
+```text
+run:       runs/exp9_ppocrv5_mobile_rec_u16s16_adamw_lsq_noreparam_full_head/
+tmux:      ppocrv5-rec-u16s16-exp9-noreparam-full-head
+profile:   configs/qat/training/ppocrv5_mobile_rec_u16s16_sgd_dynamic_height_exp9_noreparam_full_head.yml
+qat:       LSQ + AdamW + lr 3e-5 + warmup5 + reparam=false + 固定 shape(3x48x320)
+```
+
+| epoch | val_acc | norm_edit | val_CTCLoss |
+| --- | ---: | ---: | ---: |
+| 1 | 0.2759 | 0.6184 | 13.16 |
+| 10 | 0.5624 | 0.8015 | 4.70 |
+| 50(best) | **0.6124** | 0.8290 | 4.68 |
+
+- **非重参化 QAT 训练稳定**(无 exp2 崩溃、无 BN 折叠爆炸);
+- converted(best.pt)评估 acc=0.6153,与训练一致(导出无损);
+- **关键发现**:exp9 best.pt 的 checkpoint 权重是 **LSQ 量化域耦合**的——
+  裸权重(fake-quant-off)评估 acc=0.0,只有 fake-quant-on(0.6153)才有效。
+  原因:折叠后权重(如 head conv1x1 461.9)远超 S16 qmax 32767,训练时每层
+  clip,checkpoint 保存的权重必须配合 fake quant 才有意义。
+
+## 33. Exp10/Exp10a:折叠后训练集微调(起点对比)
+
+2026-08-12。目标:把 exp9 稳定权重折叠成单分支后,在训练集微调恢复精度。
+
+### 33.1 Exp10:裸权重起点(失败)
+
+```text
+run:       runs/exp10_ppocrv5_mobile_rec_fold_finetune/
+tmux:      ppocrv5-rec-u16s16-exp10-fold-finetune
+流程:      exp9 best.pt → 剥离 quantization 参数 → eager 折叠(裸 conv)→ prepare → 20 epoch 微调
+```
+
+| epoch | val_acc |
+| --- | ---: |
+| 1 | 0.086 |
+| 20 | 0.505 |
+
+- **起点错误**:exp9 权重是量化域耦合的(见 §32),剥离 fake quant 后当浮点
+  权重用,网络输出全错(epoch1 acc 0.086,正常应 ~0.55);
+- 20 epoch 从错误域重新学习,最终 0.505,追不上 exp9 的 0.6124。
+
+### 33.2 量化域折叠(quantized-domain folding)
+
+**根因**:exp9 checkpoint 权重不是可用浮点权重。正确折叠必须**在量化域进行**:
+对每个分支取 `fq(fold(w))`(fake quant 输出,含 clip 语义)后求和作为折叠
+单 conv 权重。实现脚本 `/tmp/opencode/quantized_domain_fold2.py`
+(备份 `cache/exp10a_fold_finetune_scripts/`)。
+
+```text
+对每个 conv 分支:effective_w = fq(mul(w, bn_fold_scale))   # per-channel,含 clip
+折叠:W_fused = Σ pad(fq_i(fold_i(w_i))), b_fused = Σ fold_bias_i
+```
+
+- 折叠后 eager 模型 acc=**0.535**(预测与 exp9 fake-quant-on 完全对齐),
+  vs 裸权重 0.0;
+- 修正点:BN/norm 命名差异、SE bias fq、Linear/SE 权重 fq。
+
+### 33.3 Exp10a:量化域折叠起点微调(验证成功)
+
+```text
+run:       runs/exp10a_ppocrv5_mobile_rec_qdfold_finetune/
+tmux:      ppocrv5-rec-u16s16-exp10a-qdfold-finetune
+流程:      exp9 权重 → 折叠 → 覆盖量化域折叠 state(866 键)→ prepare → 20 epoch 微调
+```
+
+| epoch | val_acc |
+| --- | ---: |
+| 1 | **0.593**(vs exp10 的 0.086)|
+| 2 | 0.610 |
+| 20 | 0.600 |
+
+- smoke loss 3.0-3.9(vs exp10 的 55.6→44.6),起点正确;
+- 导出 QuantONNX:951 节点、0 BN、ORT acc=0.595(1984 子集);
+- **结论:量化域折叠起点方案验证成功**,exp10a 即 exp11 的前身。
+
+## 34. QAT JSON output 字段失效与修复(2026-08-13)
+
+### 34.1 导出图问题
+
+exp10a QuantONNX 出现 5 个 Identity(requant 边界),用户确认约束:
+- **MatMul 只支持 int(S16)输入**;
+- **Mul 支持 int 和 uint 输入**;
+- Identity 是量化配置异常点,需消除,避免工具链 requant。
+
+### 34.2 根因(3 个独立问题)
+
+1. **`ax_quantizer_lsq.py get_config` 忽略 `output`/`output_is_symmetric`**:
+   `output_dtype=input_dtype` 硬编码(ax_quantizer_lsq.py:268)→ qspec 中所有
+   `output` 字段从未生效。后果:qkv 输出、matmul_1(softmax·V)输出实际都是
+   S16 对称,无法配置"第二个 matmul 输出 U16"。
+2. **qspec mul 节点名过时**:旧 qspec 写 `mul_58/mul_59`,与实际训练图
+   scale Mul 节点一致(本次确认无过时问题),但 output 语义失效导致
+   requant。
+3. **attention 区域外 FC 层(qkv/proj/mlp/ctc_head.fc)输入 U16 属正常**:
+   用户确认 FC 性质维持现状。
+
+### 34.3 修复
+
+1. `pytorchocr/quantization/ax_quantizer_lsq.py`:`QuantConf` 增加
+   `output_is_symmetric`;`get_quantization_config` 输出 qscheme 用独立
+   output 对称性;`get_config` 解析可选 `output` 字段。无 `output` 字段时
+   保持原行为(input=output),不破坏 det/S8 配置。
+2. discovery skill(`.codex/skills/ppocr-qat-config-discovery/`)增加
+   `--rec-graph pretrained_train` 支持(FullRecTrainingWrapper + gtc targets),
+   并发现 proj_linear;`update_config` 增加 proj 条目(验证后移除,见下)。
+3. 新 qspec `configs/qat/ppocrv5_mobile_rec_u16s16_attn_s16_lsq_v2.json`:
+   qkv(U16→S16)、scale mul(S16→S16)、matmul1(QK^T,S16→S16)、
+   softmax(S16→S16)、matmul2(softmax·V,S16→**U16**)。
+
+### 34.4 结构验证结果
+
+| 检查项 | 旧版(exp10a) | 新版(v2) |
+| --- | --- | --- |
+| Identity 节点 | 5 个 | **1 个**(仅 SE avg_pool u16→u16,用户确认不处理)|
+| QK^T/softmax·V 输入 | S16 | S16 |
+| matmul2 输出 | S16(错误) | **U16**(正确)|
+| 直接 DQ→Q / requant | 0 | 0 |
+
+- **proj 条目验证后移除**:proj 是 FC 性质,输入与 matmul_1 输出共享 U16 域
+  (同 scale/zp,无 requant);加 S16 proj 条目反而引入 2 个 requant
+  (U16→S16)。用户确认 FC 维持现状。
+- 未训练折叠权重 ORT eval:acc=0.512(2077 全量)。
+
+## 35. Exp11:exp9 折叠权重 + v2 qspec 完整训练
+
+2026-08-13。用户确认 qspec 修改后需重新训练,但指出 exp11 仍基于 exp9
+折叠权重(非严格"从头"),故后续启动 exp12 作对照。
+
+```text
+run:       runs/exp11_ppocrv5_mobile_rec_v2qspec_full_train/
+tmux:      ppocrv5-rec-u16s16-exp11-v2qspec
+profile:   configs/qat/training/ppocrv5_mobile_rec_u16s16_sgd_dynamic_height_exp11_v2qspec_full_train.yml
+流程:      exp9 best.pt → 折叠 → 量化域折叠 state(866 键)→ v2 qspec prepare → 50 epoch
+脚本:      /tmp/opencode/fold_finetune_exp11.py(备份 cache/exp10a_fold_finetune_scripts/)
+```
+
+| epoch | val_acc |
+| --- | ---: |
+| 1 | 0.593 |
+| 50(最终) | **0.5965**(train_loss 已修复记录:train_CTCLoss 0.495)|
+
+- smoke loss 2.6-3.5(v2 qspec 的 matmul 区域量化更合理,比 exp10a 更低);
+- 50 epoch 最终 0.5965,与 exp10a(0.600)同级——**起点与终点均稳定**;
+- 注意:exp11 起点仍是 exp9 折叠权重,非严格重新 QAT。
+
+## 36. Exp12:pretrained 浮点权重 + v2 qspec 从头训练(重参化)
+
+2026-08-13。用户要求"从头开始训练,现有的量化配置"——从 pretrained 浮点
+权重开始完整 QAT(不经过 exp9 任何权重)。
+
+```text
+run:       runs/exp12_ppocrv5_mobile_rec_v2qspec_from_float/
+tmux:      ppocrv5-rec-u16s16-exp12-v2qspec
+profile:   configs/qat/training/ppocrv5_mobile_rec_u16s16_sgd_dynamic_height_exp12_v2qspec_from_float.yml
+流程:      weights/ptocr_v5_mobile_rec_full.pth → build_task_model(reparam=true 折叠)→ FullRecTrainingWrapper → v2 qspec prepare → 50 epoch
+命令:      tools/train.py --task rec ... --training-profile ...exp12... --device cuda:3
+```
+
+| epoch | val_acc |
+| --- | ---: |
+| 1 | 0.473(warmup 中)|
+| 10 | 0.555 |
+| 44(best) | **0.6100** |
+| 50 | 0.606 |
+
+- **完成**:50 epoch,best epoch44 val_acc=0.610(重参化裸单分支 + v2 qspec);
+- **早期崩溃自愈**:epoch3-4 出现与 exp2 相同的崩溃(val_acc 0.0019→0.0),
+  但因 profile 未设 `float_accuracy_baseline` guard,训练继续,epoch5 自愈到
+  0.52——重参化早期崩溃是共性问题,exp2 被 guard 终止无法自愈;
+- QuantONNX 导出:`exports/quantonnx/exp12_v2qspec_from_float/
+  ppocrv5_mobile_rec_exp12_v2qspec_from_float_qdq.onnx`(950 节点,
+  3 Identity:avg_pool + select→Mul×2,因 v2 qspec 的 mul 条目未命中导致),
+  ORT acc=0.587(2077 全量)。
+
+## 37. Exp12a:非重参化 + v3 qspec 从头训练
+
+2026-08-13。用户要求"从头开始训练,现有的量化配置"的非重参化版本
+(reparam=false,与 exp9 同路线),修正 exp12 的 scale Mul 未命中问题。
+
+```text
+run:       runs/exp12a_ppocrv5_mobile_rec_v2qspec_noreparam/
+tmux:      ppocrv5-rec-u16s16-exp12a-noreparam
+profile:   configs/qat/training/ppocrv5_mobile_rec_u16s16_sgd_dynamic_height_exp12a_noreparam.yml
+qat:       v3 qspec(mul_60/61)+ AdamW + lr 3e-5 + warmup5 + reparam=false + 50 epoch
+```
+
+| epoch | val_acc |
+| --- | ---: |
+| 1 | 0.473 |
+| 5 | 0.143(warmup 波动)|
+| 28(best) | **0.6172** |
+| 50 | 0.603 |
+
+- **完成**:best epoch28 val_acc=0.6172,与 exp9(0.6124)同级;
+- 首次验证 qspec 的 `output` 字段语义:scale Mul 因 qspec 条目未命中
+  (v3 写 mul_60/61,但非重参化训练图是 mul_352/353)继承 global U16——
+  exp12a 训练实际是在"scale mul U16"下进行的;
+  **注**:profile 指向的 `attn_s16_lsq_v3.json` 文件后续已演化(mul 条目
+  扩展为同时含 mul_352/353/60/61,§39);exp12a 训练时的实际配置以
+  run 目录归档副本(`copied_configs`)为准;
+- QuantONNX(官方导出)ORT acc=0.616,与训练无损。
+
+## 38. Exp12b:exp12a 折叠 + 量化域折叠 finetune
+
+2026-08-13。用新 skill(`ppocr-quantized-domain-fold`)对 exp12a best.pt
+做量化域折叠,再 finetune 折叠单分支模型。
+
+```text
+run:       runs/exp12b_ppocrv5_mobile_rec_fold_finetune/
+tmux:      ppocrv5-rec-u16s16-exp12b-foldfinetune
+profile:   configs/qat/training/ppocrv5_mobile_rec_u16s16_sgd_dynamic_height_exp12b_fold_finetune.yml
+流程:      exp12a best.pt → fold_quantized_domain.py 提取折叠 state(179 权重)
+          → finetune_folded.py(source-checkpoint + folded-state)→ 20 epoch 微调
+qat:       v3 qspec + AdamW + lr 1e-5 + warmup2
+```
+
+| 阶段 | val_acc |
+| --- | ---: |
+| 折叠量化域起点(随机数据 observer 初始化) | 0.558 |
+| 折叠量化域起点(真实数据统计) | 0.605 |
+| exp12b epoch1 | 0.594 |
+| exp12b epoch19(best) | **0.6124** |
+| exp12b epoch20 | 0.574(末段波动)|
+
+- **折叠提取验证**:strict load 成功(训练 qspec 副本)、179 有效权重、
+  deploy 覆盖 866/126 与 exp9 一致;
+- **纯浮点 deploy eval(0.26)不代表起点**——量化域起点 0.558-0.605;
+- smoke 门禁通过(loss 3.2-5.7),epoch1 0.594,与训练 0.617 差值 <0.05;
+- best epoch19 val_acc=0.6124,与源训练 0.6172 差值 0.005,折叠 finetune
+  无损落地;best.pt 已由 skill 保存(注:本次 best.pt 为旧版保存逻辑,
+  缺 epoch/指标字段,skill 已修复后续实验自动写入);
+- QuantONNX 导出:`exports/quantonnx/exp12b_fold_finetune/
+  ppocrv5_mobile_rec_exp12b_fold_finetune_qdq.onnx`,ORT acc=0.614
+  (1984 子集);含 5 个 Identity(avg_pool + proj 前 unsafe_view×2 +
+  **proj 输出 linear_1/linear_5×2**)——proj 相关 requant 是 v3 qspec
+  proj 条目的精化点,待后续处理。
+
+### 38.1 常态化迁移(2026-08-13)
+
+折叠 finetune 验证通过后提升为常态化流程,可复用逻辑从 skill 脚本下沉到
+主工程(遵守 AGENTS.md"CLI 只做编排、可复用逻辑入 pytorchocr"约定):
+
+- **公共 API**:`pytorchocr/quantization/folding.py`
+  (`build_folded_state` / `apply_folded_state` / `folded_eager_model` /
+  `checkpoint_qat_config` / `collect_quantized_weight_map`),经
+  `pytorchocr.quantization` 导出;
+- **CLI**:`tools/finetune_folded.py`(两种模式:仅提取+量化域 eval、
+  提取+finetune;保存 epoch_NNNN/best/last,best 含 epoch/指标字段);
+- **测试**:`tests/test_folded_finetune.py`(8 测试,含慢速端到端);
+- **skill 保留**:`.codex/skills/ppocr-quantized-domain-fold/scripts/`
+  改为薄封装(`fold_quantized_domain.py` 的 `--checkpoint/--output` 映射到
+  `--source-checkpoint/--fold-state-output`),历史命令兼容;
+- 因 folding.py 顶层导入 diagnostics/training 触发循环导入
+  (quantization→training→model_builder→quantization),已在函数内延迟导入;
+- discovery skill 测试同步更新(proj_linear 角色、条目数 5→6、proj 无
+  output 字段)。
+
+## 39. qspec 节点名随图形态变化(2026-08-13)
+
+**现象**:同一模型的 scale Mul,在不同 prepare 参数下图节点名不同:
+
+| 图形态 | scale Mul 节点名 |
+| --- | --- |
+| 非重参化训练图(exp12a, reparam=false) | `mul_352/mul_353` |
+| 折叠后训练图(exp12b, 折叠单分支) | `mul_60/mul_61` |
+| skill 原始 export 图(batch1 无 dynamic) | `mul_58/mul_59` |
+
+**根因**:qspec `module_names` 匹配 prepare_qat_pt2e 后的图节点名;节点编号
+随 export 参数(dynamic batch、batch-aligned gtc、batch size、模型包装
+wrapper)变化。嵌套 export(对已 export 的 GraphModule 再 export)也会偏移。
+
+**修复**:
+1. discovery skill 改为从**原始 model**(非已 export 的 gm)以训练合同
+   (batch64 + dynamic + batch_aligned)prepare 后,按 nn_module_stack
+   remap 节点名;
+2. v3 qspec 的 mul 条目同时含两组名字
+   `[mul_352, mul_353, mul_60, mul_61]`(训练图 + 折叠图);
+3. fold_quantized_domain.py 优先使用训练时归档 qspec 副本(metadata
+   `copied_configs`)重建 checkpoint 图,避免 qspec 后续修改导致 strict
+   load 失败。
+
+**验证**:修正后 skill `--check` PASS;exp12b 折叠 finetune 正常
+(epoch1 0.594, 与训练 0.617 差值 <0.05)。
+
+## 40. Exp13:U8/S8 全局 + Attention S8(重参化,50 epoch)
+
+2026-08-14。用户确认 U8/S8 位宽路线(部署效率目标),从 pretrained 浮点权重重新
+prepare,不恢复任何 U16/S16 checkpoint。
+
+```text
+run:       runs/exp13_ppocrv5_mobile_rec_u8s8_reparam/
+profile:   configs/qat/training/ppocrv5_mobile_rec_u8s8_sgd_dynamic_height_exp13_reparam.yml
+qat:       configs/qat/ppocrv5_mobile_rec_u8s8_attn_s8_lsq.json
+           (global U8/S8 + qkv/scale/MatMul/Softmax S8 + matmul2 输出 U8 + LSQ)
+流程:      weights/ptocr_v5_mobile_rec_full.pth → build_task_model(reparam=true)
+           → FullRecTrainingWrapper(pretrained_train) → prepare → 50 epoch
+```
+
+训练参数:AdamW + lr 3e-5 + warmup 5 + Cosine(factor 0.1)、weight_decay 1e-4、
+ctc_fc_weight_decay 1e-5、lab_lr_multiplier 0.1、batch 64(69 steps/epoch)、
+seed 20260814、amp=false、reparam=true、rec_graph=pretrained_train。profile 未设
+`float_accuracy_baseline`,训练全程 observer 保持开启。
+
+| epoch | lr | train loss | val loss | val_acc | norm_edit |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 6e-6 | 30.198929 | 25.406755 | 0.156957 | 0.460719 |
+| 5 | 3e-5 | 10.743315 | 9.366367 | 0.415985 | 0.738608 |
+| 10 | 2.9e-5 | 7.715865 | 7.386831 | 0.506981 | 0.779985 |
+| 20 | 2.4e-5 | 6.221460 | 6.428292 | 0.558016 | 0.806956 |
+| 30 | 1.5e-5 | 5.673162 | 6.115382 | 0.574868 | 0.812936 |
+| 40 | 7e-6 | 5.437877 | 6.183674 | 0.582090 | 0.816948 |
+| 48(best) | 3e-6 | 5.278315 | 6.085971 | **0.591237** | 0.819755 |
+| 50 | 3e-6 | 5.308482 | 6.071529 | 0.581127 | 0.816484 |
+
+- 50 epoch 完成,无 NaN/Inf;epoch1 acc 0.157 后稳步爬升,无 exp12 式早期崩溃;
+- `best.pt`/`last.pt` 保存于 run 目录(best=epoch 48,0.591237)。
+
+导出与编译产物:
+
+```text
+QuantONNX: exports/quantonnx/exp13_u8s8_reparam/ppocrv5_mobile_rec_exp13_u8s8_reparam_qdq.onnx
+结构:      940 节点、Q 243 / DQ 428、激活 zp dtype S8 20 / U8 223、
+           Attention×2 = qkv S8 → MatMul S8 → Softmax S8 → matmul2 输出 U8
+Pulsar2:   artifacts/pulsar2/exp13_u8s8_reparam/ppocrv5_mobile_rec_exp13_u8s8.json(AX650, NPU3)
+远端编译:  /data/shared/heqi/self-developed/qat-ppocr/output/exp13_u8s8_reparam/compiled.axmodel
+```
+
+### 40.1 上板与 ORT 对齐:8bit 下采样链精度不足(2026-08-17)
+
+- 上板(AxEngine)acc **0.5392** vs 本机 ORT(QuantONNX)**0.5835**,差 0.044;
+- 远端逐样本/逐层对比确认差异真实,非预处理或 frontend 优化造成
+  (frontend 后 optimized.onnx vs 原始 QuantONNX:max_abs=0.0000、argmax 一致);
+- per-layer dump 修正 dtype 读法后(S8 按 int8、U8 按 uint8 反量化),
+  **attention S8/S8→U8 在 NPU 上正确、无饱和**;
+- 真实误差源:CNN 下采样路径([480,6,80]→[480,3,80]→[480,1,40])的 U8 激活
+  量化分辨率不足,conv2d_31/32 及其 hardswish/lab 链整数域误差 2~3
+  (attention 域 ~0.6 的 4-5 倍),scale 接近 1.0 只用了约 30% 满量程;
+- 结论与复现命令见 §40.2(原独立记录
+  `exp13_quantonnx_vs_axmodel_layer_compare.md` 已于 2026-08-18 并入本文档);
+- 下一步方向:下采样链改 S16 量化域(见 §43)。
+
+### 40.2 exp13 QuantONNX vs axmodel 逐层对比(2026-08-17,2026-08-18 并入)
+
+涉及产物:`exports/quantonnx/exp13_u8s8_reparam/`(本机),远端
+`/data/shared/heqi/self-developed/qat-ppocr/output/exp13_u8s8_reparam/`
+(Pulsar2 编译)。
+
+**背景**:上板精度 0.5392(AxEngine,compiled.axmodel)与本机 ORT 0.5835
+(QuantONNX QDQ)对不齐,差 0.044。使用远端 `compare_onnx_ax.py` 类似流程
+逐样本对比 axmodel 与 onnx 的 CTC logits。
+
+**逐样本对比结果(50 样本,pulsar2 run 单 session 批量)**:
+
+| 指标 | 值 |
+|---|---|
+| mean_argmax_agree(logits argmax 逐帧一致率) | 0.9765 |
+| ax vs onnx 序列一致率 | 0.80 |
+| mean_mae | 2.65 |
+| mean_max_abs | 23.6 |
+| onnx_seq_acc / ax_seq_acc | 0.74 / 0.68 |
+
+结论:axmodel 与 QuantONNX 存在真实数值差异,非预处理差异。量级与上板
+0.539 vs 0.583 吻合。
+
+**环节隔离**:
+
+1. frontend 优化(optimized.onnx,Silu/FC 改写为标准算子后在 ORT 对比):
+   原始 QuantONNX vs optimized.onnx:**max_abs=0.0000,argmax_agree=1.0000**,
+   frontend 无损;
+2. 编译产物(compiled.axmodel / quant_axmodel.onnx per-layer dump)vs 原始
+   ONNX:差异集中在 CNN 下采样路径,见下。
+
+**逐层差异定位(per-layer dump + consumer QuantizeLinear 反量化)**:对
+quant_axmodel.onnx 用 `pulsar2 run --enable_perlayer_output` 得到 365 个
+中间层 bin;与插桩中间输出的原始 QuantONNX 在 ORT 逐层对比。
+
+**重要:dtype 读法陷阱(先踩坑后修正)**:per-layer dump 的 bin:float32 输出
+层存 float32,量化中间层存**量化整型**。
+
+- **S8 层(zp=0,有符号)必须用 int8 读**,反量化 `q * scale`
+- **U8 层(zp≠0,无符号)必须用 uint8 读**,反量化 `(q - zp) * scale`
+
+错误读法会把 S8 负值位移成 128~255,误判"QK^T MatMul 饱和 63%";把 U8 当
+int8 又会把 >127 值读成负数。**这两个误判方向都已被验证并推翻**,不要沿用。
+
+**修正 dtype 后:attention 全部正常**:
+
+| 层 | dtype | int 域 diff mae | float 域 mae | 评估 |
+|---|---|---|---|---|
+| matmul / matmul_2(QK^T) | S8 | ~0.6 / ~0.9 | 0.24 / 0.31 | 正常 |
+| matmul_1 / matmul_3(softmax·V) | U8 | ~0.4 | 0.04 / 0.07 | 正常 |
+| softmax | U8 | - | 0.006 | 正常 |
+| linear / linear_4 | S8 | - | 0.15 / 0.17 | 正常 |
+
+S8/S8→U8 的 attention 量化域配置在 NPU 上正确,无符号 bug,无饱和。
+
+**真正差异源:CNN 下采样路径(U8 激活量化)**。最大 float 域差异层(修正读法
+后):
+
+| 层 | shape | max_abs | mae | ref_absmax |
+|---|---|---|---|---|
+| add_55 / mul_57 | [1,480,3,80] | 24.5 / 24.8 | 1.30 / 1.12 | 69 |
+| add_54 / mul_56 | [1,480,3,80] | 14.2 / 14.2 | 1.05 / 1.02 | 47 |
+| avg_pool2d | [1,480,1,40] | 13.3 | 0.74 | 40 |
+| add_45 | [1,480,6,80] | 12.7 | 0.58 | 87 |
+| conv2d_32 / conv2d_35 | [1,480,3,80] | 6.8 / 3.0 | 0.49 / 0.36 | 25 / 14 |
+
+整数域对比(同 scale 下 NPU 量化值 vs ORT 量化值):
+
+| 层 | scale | pl_q range | ref_q range | int diff mae |
+|---|---|---|---|---|
+| mul_56 / add_54 | 0.496 / 0.502 | [2,142] / [3,141] | [2,140] / [3,139] | 2.04 |
+| hardswish_27 | 0.286 | [0,80] | [0,76] | 1.18 |
+| mul_57 / add_55 | 0.954 / 0.967 | [0,78] / [1,78] | [0,74] / [1,74] | 1.17 / 1.12 |
+| conv2d_32(输入 scale 0.0255) | 0.236 | - | - | 2.06 |
+| conv2d_35 | 0.120 | - | - | 2.97 |
+
+`conv2d_32` / `conv2d_35`(下采样卷积,输出 U8 zp=96/103)整数域误差 2~3,
+是 attention 域(~0.6)的 4~5 倍。下采样路径 [1,480,6,80]→[1,480,3,80]→
+[1,480,1,40] 的量化分辨率不足是 8bit 的固有代价(非配置错误)。
+
+**与 16bit 对比(下采样链 scale)**:
+
+| 模型 | avg_pool2d 输入 scale | 输出 scale |
+|---|---|---|
+| exp10a(16bit) | 0.00286(zp 544) | 0.00195(zp 777) |
+| exp13(8bit) | 0.967(zp 2) | 0.693(zp 2) |
+
+8bit 下 scale 接近 1.0(255 级只用了 ~30% 满量程),16bit 下 0.003(65536
+级)。8bit 下采样链量化分辨率显著低于 16bit。
+
+**结论**:
+
+1. 上板 0.539 vs ONNX 0.583 差异真实,由 8bit 量化造成,非预处理 / frontend /
+   attention 配置问题;
+2. 主要误差源:CNN 下采样路径([480,6,80]→[480,3,80]→[480,1,40])的 U8
+   激活量化,conv2d_32/35 整数域误差 2~3;
+3. attention S8/S8→U8 配置正确,NPU 实现无符号 bug、无饱和(此前"饱和"
+   结论为 uint8 误读 S8 的假象);
+4. 50 样本中 6% 样本 argmax_agree<0.9(最低 0.85),与上板 0.539 量级吻合。
+
+**可尝试的优化方向**:
+
+- 下采样路径(node_Conv_1520/1985/2004/2019 及 mul/add/avg_pool 链)改
+  **S16 量化域**,提高下采样链分辨率;attention 保持 S8/S8→U8——已由 §43
+  落地为 exp15/16;
+- 或整模型关键敏感层(下采样 conv)用 precision_analysis / per-layer 混合
+  精度 S16;
+- 重新编译后用同一 per-layer 对比脚本验证该链 int diff 是否下降。
+
+**复现命令(远端)**:
+
+```bash
+source /data/heqi/project/npu-codebase/script/npu_dev
+cd /data/shared/heqi/self-developed/qat-ppocr
+# 50 样本 axmodel vs onnx 对比(pulsar2 run --list 单 session)
+python3 compare_rec_onnx_ax_batch.py \
+  --onnx onnx/exp13_u8s8_reparam/ppocrv5_mobile_rec_exp13_u8s8_reparam_qdq.onnx \
+  --axmodel output/exp13_u8s8_reparam/compiled.axmodel \
+  --dictionary-path ppocrv5_dict.txt \
+  --label-file /data/shared/heqi/self-developed/dataset/icdr2015val/rec_gt_test.txt \
+  --data-dir /data/shared/heqi/self-developed/dataset/icdr2015val \
+  --samples 50 --tmp-dir /tmp/rec_cmp_batch
+# per-layer dump
+pulsar2 run --model output/exp13_u8s8_reparam/quant/quant_axmodel.onnx \
+  --input_dir <in> --output_dir <out> --list <list> --enable_perlayer_output
+# 修正 dtype 后逐层对比
+python3 per_layer_compare5.py
+```
+
+注意:`pulsar2 run` 每次调用有 ~17s 启动开销;per-layer dump 的 S8 层按
+int8 读、U8 层按 uint8 读,反量化 scale/zp 从原始 QuantONNX 的 consumer
+QuantizeLinear 获取。
+
+## 41. Exp14:U8/S8 全局 + Attention S8(非重参化,50 epoch)
+
+2026-08-14。Exp13 的非重参化对照(reparam=false,与 exp9/exp12a 同路线),其余
+配置与 Exp13 相同。
+
+```text
+run:       runs/exp14_ppocrv5_mobile_rec_u8s8_noreparam/
+profile:   configs/qat/training/ppocrv5_mobile_rec_u8s8_sgd_dynamic_height_exp14_noreparam.yml
+qat:       configs/qat/ppocrv5_mobile_rec_u8s8_attn_s8_lsq.json
+流程:      pretrained 浮点权重 → build_task_model(reparam=false) → 50 epoch
+```
+
+| epoch | lr | train loss | val loss | val_acc | norm_edit |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 6e-6 | 38.868309 | 30.578189 | 0.017333 | 0.205650 |
+| 5 | 3e-5 | 10.457315 | 9.680782 | 0.396726 | 0.703765 |
+| 10 | 2.9e-5 | 6.880084 | 7.466786 | 0.521907 | 0.772573 |
+| 20 | 2.4e-5 | 5.288897 | 6.806871 | 0.562350 | 0.796888 |
+| 33(best) | 1.2e-5 | 4.312685 | 6.573874 | **0.591719** | 0.816410 |
+| 50 | 3e-6 | 3.887603 | 7.448944 | 0.515648 | 0.766172 |
+
+- 50 epoch 完成,无崩溃;best epoch33 acc=0.591719,与 exp13(0.591237)同级;
+- `best.pt`(epoch 33)、`epoch_0033.pt`、`last.pt` 保存于 run 目录;
+
+```text
+QuantONNX: exports/quantonnx/exp14_u8s8_noreparam/ppocrv5_mobile_rec_exp14_u8s8_noreparam_qdq.onnx
+结构:      1796 节点、Q 505 / DQ 760、激活 zp dtype S8 20 / U8 485(非重参化多分支图更大)
+Pulsar2:   artifacts/pulsar2/exp14_u8s8_noreparam/ppocrv5_mobile_rec_exp14_u8s8.json
+```
+
+exp14 的 QuantONNX 已导出并生成 Pulsar2 配置,远端编译与上板评估尚未执行。
+
+## 42. Exp14b:exp14 量化域折叠 + finetune(U8/S8)
+
+2026-08-14。用 `ppocr-quantized-domain-fold` 工作流把 exp14 best.pt 折叠为单分支
+推理结构,再 finetune。折叠起点用量化域折叠 state(非裸权重)。
+
+```text
+profile:   configs/qat/training/ppocrv5_mobile_rec_u8s8_sgd_dynamic_height_exp14b_fold_finetune.yml
+qat:       configs/qat/ppocrv5_mobile_rec_u8s8_attn_s8_lsq.json
+流程:      exp14 best.pt → tools/finetune_folded.py 提取折叠 state
+           (applied 866 / skipped 126)→ prepare(LSQ)→ 10 步 smoke 门禁 → finetune
+参数:      AdamW + lr 1e-5 + warmup 2 + Cosine(factor 0.1)、batch 64、reparam=true
+```
+
+两轮 finetune:
+
+```text
+run:    runs/exp14b_ppocrv5_mobile_rec_u8s8_fold_finetune/       (20 epoch)
+        best epoch19 acc=0.576793;smoke 门禁 loss 16.2→13.6 通过
+run:    runs/exp14b_ppocrv5_mobile_rec_u8s8_fold_finetune_50ep/  (50 epoch)
+        best epoch38 acc=0.593645;epoch50 0.586904
+```
+
+| epoch | train loss | val loss | val_acc | norm_edit |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 8.916022 | 8.277663 | 0.506500 | 0.779399 |
+| 5 | 5.598446 | 7.638434 | 0.555128 | 0.801856 |
+| 19 | 4.427325 | 6.804968 | 0.584497 | 0.812316 |
+| 29 | 4.178705 | 6.717940 | 0.591237 | 0.814621 |
+| 38(best) | 3.991543 | 6.515091 | **0.593645** | 0.814052 |
+| 50 | 3.817269 | 6.488211 | 0.586904 | 0.815348 |
+
+- 折叠起点合理(epoch1 0.5065,无 exp10 式错误域起点),smoke 门禁通过;
+- best(0.593645)> exp13(0.591237)≈ exp14(0.591719),当前 U8/S8 最优;
+- 量化域折叠 + 单分支部署图在 U8/S8 位宽下再次无损落地。
+
+导出产物:
+
+```text
+QuantONNX: exports/quantonnx/exp14b_u8s8_fold_finetune/ppocrv5_mobile_rec_exp14b_u8s8_fold_finetune_qdq.onnx
+结构:      940 节点、Q 243 / DQ 428、激活 zp dtype S8 20 / U8 223(与 exp13 同形态)
+Pulsar2:   artifacts/pulsar2/exp14b_u8s8_fold_finetune/ppocrv5_mobile_rec_exp14b_u8s8.json
+```
+
+注意:该 QuantONNX 与 Pulsar2 配置来自 20-epoch 版 checkpoint;50-epoch 版
+(`exp14b_..._50ep/best.pt`,acc 0.593645)的 QuantONNX 尚未导出,后续需以
+`tools/export_ocr_onnx.py checkpoint` 重新导出并重生成 Pulsar2 配置。exp14/exp14b
+的远端编译与上板评估均未执行。
+
+## 43. U8/S8 下采样链 S16 混合精度(exp13 对齐后续,2026-08-17)
+
+依据 exp13 逐层对比结论(§40.1),把 CNN 下采样路径 blocks6[2]/blocks6[3]
+(conv2d_29-32 及其 hardswish/lab mul-add 链、最终 avg_pool 输入)改为 S16
+量化域,attention 保持 S8/S8→U8。qspec、注解核验与 smoke 见 §43.1。
+
+
+### 43.1 下采样链 S16 qspec 与 smoke(2026-08-17)
+
+**设计**:exp13 逐层对比结论(§40.1)显示误差注入点在 blocks6[2]/blocks6[3]
+(conv2d_29-32)及其 hardswish/lab mul-add 链与最终 avg_pool 输入。新 qspec:
+
+```text
+configs/qat/ppocrv5_mobile_rec_u8s8_attn_s8_downsample_s16_lsq.json
+  = ppocrv5_mobile_rec_u8s8_attn_s8_lsq.json(全局 U8/S8 + attention S8)+
+    conv2d_29/30/31/32        conv  S16 input/weight/output
+    mul_50..mul_57            mul   S16 input/output(blocks6[2]/[3] 的 lab/act lab)
+    add_48..add_55            add   S16 input/output
+    adaptive_avg_pool2d_2     avgpool2d  S16 input(输出保持全局 U8,回到 CTC 编码器域)
+    mul 条目 union + mul_58/mul_59(smoke batch-1 部署图 scale Mul 名,§39 模式)
+```
+
+节点名从 `export_for_training`/`prepare_qat_pt2e` 图按 nn_module_stack 重新发现
+(dump 脚本 `/tmp/opencode/dump_blocks6_nodes.py`):训练合同(batch64 + dynamic +
+batch-aligned gtc,reparam)与 smoke 合同(batch1 + deploy + dynamic heights 32/48/64)
+的 blocks6 节点名一致(conv2d_29-32、mul_50-57、add_48-55、adaptive_avg_pool2d_2),
+无需为下采样条目拆分 union;非重参化图的编号完全不同,该 qspec 只用于重参化/折叠
+图形态,非重参化训练如需采用必须重新发现。
+
+**prepared 图注解核验**(`dump_blocks6_nodes.py --qat-config <新配置>`):
+
+```text
+add_47(段入口,blocks6[1] pw act lab) 输入 U8 → 输出 S16(conv 输入 qspec 改写,单用户)
+conv2d_29-32                         输入 S16 / 权重 S16 / 输出 S16
+mul_50-57、add_48-55                 输入 S16 / 输出 S16
+hardswish__24-27                     未注解(float 算子,边界 fake-quant 继承消费者 S16)
+adaptive_avg_pool2d_2                输入 S16 / 输出 U8
+attention(mul_60/61、matmul、softmax) 保持 S8 合同不变
+```
+
+段入口 U8→S16 转换发生在 add_47 的输出 Q(单 Q 节点 dtype 变化,无额外 Identity)。
+
+**配套修复**:
+
+1. `ax_quantizer_utils.py` 的 avgpool2d regional 分支把 `SourcePartition` 直接
+   传给 `_is_annotated`(上游 QAT.Ultralytics.YOLOv5 bug,regional avgpool2d 从未被
+   使用过,首次触发),改为传 `partition.nodes`,并新增回归测试
+   `tests/test_lsq_quantizer.py::AvgPoolRegionalAnnotationTest`;
+2. discovery skill `--check` 的第二阶段原来要求"重新生成 == 模板",对含多个图形态
+   名字的 union 配置(§39)必然失败。改为 union 感知比较
+   (`_config_matches_template`):每个重新生成的条目必须被同 module_type 的模板
+   条目包含(module_config 相等 + 名字子集),无生成对应的模板条目(如本 S16
+   下采样条目)允许存在,靠注解级核验保证;新增
+   `tests/test_qat_config_discovery_skill.py::ConfigMatchesTemplateTest` 5 项。
+   U8/S8 配置无 proj 条目(§34.4 验证后移除),check 需加 `--no-proj-entry`。
+   修复后本 qspec 在 exp13 合同(batch64 + dynamic + reparam)下 `--check` PASS。
+
+**smoke**(`tools/qat_smoke.py`,U8/S8 + 下采样 S16,reparam,batch1 deploy,
+dynamic heights 32/48/64,onnx optimize):
+
+```text
+output:               /tmp/ppocrv5_mobile_rec_downsample_s16_qat_smoke.onnx
+                      (结构检查副本: exports/quantonnx/exp15_u8s8_downsample_s16_smoke/
+                       ppocrv5_mobile_rec_exp15_downsample_s16_qat_smoke.onnx)
+float/prepared/conv:  500 / 984 / 1343 节点;gradient 151 全有限
+ONNX:                 941 节点、Q 243 / DQ 429、BN 0
+Q dtype:              int16 25 / int8 20 / uint8 198
+quantized weights:    int16 4(下采样 4 conv)/ int8 43
+unquantized conv:     0;direct/redundant DQ-Q: 0/0
+Identity:             1(avg_pool 输出 U8→U8 尺度边界,与 exp13 相同)
+ORT(no-opt):          argmax agreement 1.0
+tools/verify_qat_onnx.py: CHECK PASS
+```
+
+smoke ONNX 中 S16 Q 节点共 25 个,全部位于下采样链。首轮 smoke 出现 3 个
+Identity:1 个为 avg_pool 输出 U8→U8 尺度边界(exp13 既有),另 2 个是 smoke 合同
+batch-1 部署图 scale Mul(mul_58/59)未命中 qspec mul 条目所致(S8→U8 requant);
+按 §39 union 模式把 `mul_58/mul_59` 加入 mul 条目后重跑,Identity 回落为 1,
+smoke 结构与训练合同一致(exp13 导出的 QuantONNX 同为 1 个该 Identity)。
+
+**后续步骤**(按门禁顺序):
+
+1. ~~人工结构检查 smoke QuantONNX~~ **2026-08-17 已确认通过**;
+2. 启动 exp15 训练(**2026-08-17 17:26 已启动**,进行中):
+
+   ```text
+   tmux:      ppocrv5-rec-u8s8-exp15-ds16
+   device:    物理 GPU 3;CUDA_VISIBLE_DEVICES=3;进程内 cuda:0
+   run:       runs/exp15_ppocrv5_mobile_rec_u8s8_downsample_s16_reparam/
+   profile:   configs/qat/training/ppocrv5_mobile_rec_u8s8_sgd_dynamic_height_exp15_downsample_s16_reparam.yml
+   实际命令:  env PYTHONPATH="$PWD" CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=3 \
+                /home/heqi/miniforge3/envs/torch2.6-qat-yolo/bin/python -u tools/train.py \
+                --task rec \
+                --model-config configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml \
+                --weights weights/ptocr_v5_mobile_rec_full.pth \
+                --label-file /home/heqi/dataset/icdr/rec_gt_train.txt \
+                --data-dir /home/heqi/dataset/icdr \
+                --val-label-file /home/heqi/dataset/icdr/rec_gt_test.txt \
+                --val-data-dir /home/heqi/dataset/icdr \
+                --output-dir runs/exp15_ppocrv5_mobile_rec_u8s8_downsample_s16_reparam \
+                --training-profile configs/qat/training/ppocrv5_mobile_rec_u8s8_sgd_dynamic_height_exp15_downsample_s16_reparam.yml \
+                --device cuda:0
+   epoch 1:  val_acc 0.266731(vs exp13 同期 0.156957,下采样 S16 起点更高)
+   ```
+
+3. 导出 best QuantONNX(`tools/export_ocr_onnx.py checkpoint`)、生成 Pulsar2 配置
+   (`.codex/skills/ppocrv5-rec-pulsar2-config`),scp 到远端编译,再用
+   `compare_onnx_ax.py`/`compare_rec_onnx_ax_batch.py` 对比 axmodel 与 ONNX,
+   检查下采样链 int diff 是否从 2~3 降到 attention 量级;
+4. 同时补跑 exp14/exp14b 的远端编译,完善 U8/S8 三条路线的板端对比矩阵。
+
+### 43.2 exp15 训练与远端编译进展(2026-08-17)
+
+**训练完成(17:58)**:50 epoch、无 NaN/Inf,全程领先 exp13 曲线。best.pt =
+epoch 48,**best val_acc 0.596533**(vs exp13 0.591237 / exp14 0.591719 /
+exp14b-50ep 0.593645,当前 U8/S8 最优),last epoch50 val_acc 0.590756。
+产物:`runs/exp15_ppocrv5_mobile_rec_u8s8_downsample_s16_reparam/`。
+
+| epoch | val_acc | 对比 exp13 |
+| ---: | ---: | ---: |
+| 1 | 0.266731 | 0.156957 |
+| 5 | 0.479538 | 0.415985 |
+| 22 | 0.563794 | ~0.556 |
+| 39 | 0.581608 | ~0.578 |
+| 48(best) | **0.596533** | 0.591237 |
+| 50 | 0.590756 | 0.581127 |
+
+**导出与配置**:`tools/export_ocr_onnx.py checkpoint` 导出成功
+(941 节点、Q 243 / DQ 429、1 个 avg_pool Identity、ORT argmax agreement 1.0):
+
+```text
+QuantONNX: exports/quantonnx/exp15_u8s8_downsample_s16_reparam/
+           ppocrv5_mobile_rec_exp15_u8s8_downsample_s16_reparam_qdq.onnx
+Pulsar2:   artifacts/pulsar2/exp15_u8s8_downsample_s16/ppocrv5_mobile_rec_exp15_u8s8.json
+           (--attention-dtype S8 生成与校验均通过:attention_regions 2、requants 1、silu 7)
+```
+
+**远端编译(进行中)**:scp 至 `/data/shared/heqi/self-developed/qat-ppocr/`
+(onnx/exp15_u8s8_downsample_s16/ + config/ppocrv5_mobile_rec_exp15_u8s8.json)。
+排查过程中确认两个前端/后端问题并修复:
+
+1. **QKV 规则 frontend 重命名**:首次 build 报 `Op of name(node_Add_1801)
+   doesn't exist`。工具链 frontend 把 QKV 的 MatMul+Add 融合成
+   `op_N:onnx.FullyConnected`,原 QuantONNX 节点名失效。按 exp13 远端配置
+   同一模式,从 probe 量化的 `quant_axmodel.json` 的 tensor_configs 确认
+   QKV FC 为 `op_8`(linear)与 `op_12`(linear_4),远端配置 QKV 规则改为
+   `["op_8:onnx.FullyConnected","op_12:onnx.FullyConnected"]`(attention core
+   与第二 MatMul 的 ONNX 名保留,与 exp13 相同)。本地配置保留生成版本
+   (校验通过),远端配置为 remap 版本。
+
+2. **S16 lab scale Mul 标量前置触发 TENG 对齐断言**:probe build(去掉 QKV
+   规则)在 precision analysis 阶段报 `OpXrunException: AxQuantizedMul
+   node_Mul_1418 ... assert (p.n * p.ksize) % 256 == 0`(cmd_teng.py)。两个
+   独立根因叠加:
+   - 操作数顺序:`LearnableAffineBlock` 的 `scale * x` 导出为 `Mul(DQ(int8
+     标量), DQ(S16 张量))`(标量在前),而 AX650 的 S16 FMA Mul builder 期望
+     张量在前、标量在后(标量第二输入走 pixel-repeat 打包)。修复:导出阶段
+     新增 `swap_scalar_first_quantized_muls` pass(onnx_export.py)——元素级
+     浮点乘法交换律,Q/DQ 各自跟随操作数;交换 56 个 lab Mul 操作数。
+   - 标量位宽:交换后仍报同一 assert;远端 `fill_data_align` 临时 debug 打印
+     得到 `p.n=240(=W×C=3×80), p.ksize=8`,1920%256≠0。int16 标量
+     (ksize=16)则 240×16=3840%256=0 满足打包。修复:
+     `bridge.py::_use_weight_qspec_for_dyadic_static_scalars` 让 S16 域
+     dyadic 算子的标量操作数改用 S16 per-tensor 量化(其余仍为全局 S8)。
+   - 回归测试:`tests/test_onnx_export.py` 新增 4 项(交换、数值逐位一致、
+     张量在前保持、双张量保持,ORT_DISABLE_ALL 对比);
+     `tests/test_axera_vendor.py::test_s16_domain_dyadic_scalars_use_s16_qspec`
+     验证 S16 域标量 int16。
+   - **编译探针通过**:修复后用初始化(未训练)QuantONNX
+     (`tools/export_ocr_onnx.py initialized`,union 名需先去掉 noreparam 的
+     mul_352/353 才能过 initialized 的严格名字检查)在远端编译成功——
+     `compiled.axmodel` 生成,编译器自检 "check npu graph [subgraph_npu_0_b1]
+     [logits], (1, 40, 18385), float32 successfully!"。
+
+标量 qspec 变更属于 qspec 合同变更,按门禁从浮点权重重新 prepare 并重训
+(exp16,profile 与 exp15 相同、seed 相同;19:09 已启动,GPU 3);exp15 的
+checkpoint 不得跨合同恢复。
+
+### 43.3 PTQ 精度验证(全量 8bit / 全量 16bit,不训练,2026-08-17)
+
+用户要求验证重参化模型的 PTQ 精度与收益。流程:浮点权重 → reparam deploy
+(CTC)→ LSQ prepare → 权重静态统计 + 训练集 8 batch(512 样本)激活统计
+(observer on / fake-quant off)→ val 2077 全量评估(fake-quant on / converted,
+不再训练)。脚本:`/tmp/opencode/ptq_eval_rec.py`;配置 =
+`base_u8s8.json`/`base_u16s16.json` + `"lsq": true`(全量全局配置,无 attention
+regional 条目;MatMul 输入仍为 quantizer 内置 S16 regional)。
+
+| 配置 | prepared fake-quant-on acc | converted acc | norm_edit(converted) |
+| --- | ---: | ---: | ---: |
+| 全量 U8/S8 | 0.2364 | 0.2427 | 0.4767 |
+| 全量 U16/S16 | 0.5368 | 0.5392 | 0.7763 |
+
+对比基线:
+
+```text
+float baseline:                0.5936
+U8/S8 + attention S8 + LSQ QAT: exp16 best 0.5927(训练后)
+U16/S16 + LSQ QAT:             exp12a best 0.6172(训练后)
+```
+
+结论:
+- **PTQ 8bit 无收益**:acc 0.24,远低于浮点 0.5936(-0.35);attention 与全
+  8bit 激活不做训练直接量化即严重退化,与早期 U16/S16"32 图 observer
+  fake-on 0.3457"的未训练退化现象一致;
+- **PTQ 16bit 部分收益**:acc 0.5392(-0.054 vs 浮点),显著优于 8bit PTQ,
+  但低于 U16/S16 QAT 0.6172(-0.078);
+- **QAT 相对 PTQ 的收益**:U8/S8 域 0.2427 → 0.5927(+0.35);U16/S16 域
+  0.5392 → 0.6172(+0.078)。LSQ 可学习 scale 训练对恢复量化精度是必需的,
+  PTQ 无法替代 QAT;
+- 16bit PTQ 的 0.5392 恰好与 exp13 上板 acc 0.5392 同值(巧合,不同配置)。
+
+
+### 43.4 exp16 编译与 axmodel/ONNX 对齐结论(2026-08-17)
+
+exp16(best acc 0.5927,epoch 49)导出 → Pulsar2 配置(exp16 专属节点名,QKV 规则
+remap 为 op_8/op_12)→ 远端编译成功(compiled.axmodel,编译器自检
+"check npu graph [subgraph_npu_0_b1] [logits], (1, 40, 18385), float32
+successfully!")。50 样本 pulsar2-run 对比(与 exp13 同一协议):
+
+| 指标 | exp13(U8/S8 全 8bit 下采样) | exp16(下采样链 S16) |
+| --- | ---: | ---: |
+| mean_argmax_agree | 0.9765 | **0.9900** |
+| ax_vs_onnx_seq_acc | 0.80 | **0.86** |
+| mean_mae | 2.65 | **1.156** |
+| mean_max_abs | 23.6 | **11.85** |
+| ax_seq_acc / onnx_seq_acc(50 样本) | 0.68 / 0.74 | **0.72 / 0.72** |
+
+**结论**:
+1. 下采样链 S16 显著缩小了 axmodel 与 QuantONNX 的数值差距:MAE 与 max_abs
+   各降约一半,逐帧 argmax 一致率 0.9765→0.99,序列一致率 0.80→0.86;
+2. 50 样本上 axmodel 序列 acc 首次与 ONNX 完全一致(0.72 vs 0.72),
+   exp13 同子集上差 0.06(0.68 vs 0.74);
+3. 残余 max_abs 26.6 的样本逐帧 argmax 仍 100% 一致(误差在 logits 尾部
+   量级,不影响解码),与"残余差异来自其余 U8 域"一致;
+4. **全量板端 AxEngine acc(2026-08-18 用户板端实测)**:上板 acc **0.58449**
+   vs 本机/远端 ORT 全量 0.58546,差 **0.001**——exp13 的 0.044 上板差距
+   已消除,exp16 上板与 ORT 对齐(即下采样链 S16 修复在板端验证闭环,
+   板端评估使用 `cache/eval_rec_ax.py`)。
+5. exp16 QuantONNX 全量 val(2077,远端 `eval_rec_onnx.py`,CPU ORT):
+   **acc 0.58546**、norm_edit 0.8188(vs exp13 ORT 0.5835,+0.002;训练内
+   val 0.5927 → ORT 0.5855 差 0.007,与 exp13 的 0.5912→0.5835 同级)。
+

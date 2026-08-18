@@ -317,9 +317,22 @@ def run_onnx_reference(model, images):
 
 def numpy_error_stats(reference, actual):
     difference = np.abs(reference - actual)
+    squared = difference * difference
+    reference_flat = reference.reshape(reference.shape[0], -1)
+    actual_flat = actual.reshape(actual.shape[0], -1)
+    denominator = np.linalg.norm(reference_flat, axis=1) * np.linalg.norm(
+        actual_flat, axis=1
+    )
+    cosine = np.zeros(reference_flat.shape[0], dtype=np.float64)
+    nonzero = denominator > 0
+    cosine[nonzero] = np.sum(
+        reference_flat[nonzero] * actual_flat[nonzero], axis=1
+    ) / denominator[nonzero]
     return {
         "mae": float(np.mean(difference)),
+        "mse": float(np.mean(squared)),
         "max_abs": float(np.max(difference)),
+        "cosine_similarity": float(np.mean(cosine)),
     }
 
 

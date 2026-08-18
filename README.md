@@ -763,11 +763,15 @@ QuantONNX 结构错误。
 - 当前只验证单卡训练，尚未接入 DDP；recognition 动态宽度尚未支持，部署宽度固定。
 - QAT baseline 关闭随机增强；Paddle 的其他模型专属增强需要逐模型验收后才能启用。
 - ONNX checker 和 ORT 通过不等于 Axera 芯片验收；仍需 Pulsar2 编译和板端结果。
-- PP-OCRv5 mobile rec 的 Exp2（reparam=true）、Exp3（reparam=false）、Exp4（reparam=false + KD）均已在
-  epoch 2 精度门禁停止：acc 0.0019 / 0.3899 / 0.3717，仍低于浮点基线 0.5936。checkpoint 仅用于
-  结构与根因分析，不得恢复为正式训练；主因是未修复的 U16 observer `eps=2**-12` 截断，KD 无法弥补。
-  结论与保留产物见
-  [`v5 mobile rec QAT 训练记录`](docs/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md)。
+- PP-OCRv5 mobile rec 的早期 U16/S16 Exp2-4（含 KD）在 epoch 2 门禁停止（acc 0.0019/0.3899/0.3717，
+  主因是 U16 observer `eps=2**-12` 截断）。改用 LSQ + 非重参化/量化域折叠路线后，U16/S16 最优
+  0.6172（exp12a）。U8/S8 部署位宽下 exp13 上板 acc 0.5392 vs ORT 0.5835 的差异已逐层定位为
+  CNN 下采样路径 U8 激活量化分辨率不足（attention S8/S8→U8 在 NPU 上正确，见 §40.2 逐层对比）；
+  下采样链改 S16 混合精度后 exp15 best 0.5965、exp16 best 0.5927，exp16 已远端编译成功且
+  axmodel 与 QuantONNX 逐样本对齐（50 样本序列 acc 一致、MAE 减半），**上板 acc 0.58449 vs
+  ORT 全量 0.58546（差 0.001）**，exp13 的 0.044 上板差距已消除。结论与保留产物见
+  [`v5 mobile rec QAT 训练记录`](docs/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md)
+  （含 §40.2 exp13 逐层对比与 §43.4 exp16 上板/ORT 对齐）。
 - 知识蒸馏（KD）支持已实现：浮点与 QAT 训练均可通过 `--kd` 启用冻结浮点 teacher 的
   CTC logits/DB maps 蒸馏（可选中间层），详见
   [`KD 训练指南`](docs/axera_qat/guides/kd_training.md)。

@@ -61,7 +61,7 @@ weights/                 Paddle/PyTorch 浮点权重，不提交大文件
 runs/                    训练 checkpoint 和日志
 exports/quantonnx/       需要保留的 QuantONNX
 exports/frontend/        Axera frontend 优化模型参考
-references/              PaddleOCR、PytorchOCR、QAT.axera 等只读参考 checkout
+references/              PaddleOCR、PytorchOCR、QAT.axera、QAT.Ultralytics.YOLOv5 等只读参考 checkout
 cache/                   可再生缓存和历史迁移文件，不作为生产代码依赖
 .codex/skills/           本项目 QAT 和 Pulsar2 工作流 skill
 ```
@@ -106,6 +106,9 @@ cache/                   可再生缓存和历史迁移文件，不作为生产�
    边界按现有导出规则插入 Identity。
 9. 激活/权重 dtype 与 MatMul/Attention 连续量化域属于模型 QAT 合同。需要调整时，同时更新 QAT JSON、发现
    skill、QuantONNX 结构测试和 Pulsar2 配置生成规则。
+10. 导出 ONNX/QuantONNX 默认 `batchSize=1`（静态 batch 1，部署推理形态）；除非任务或实验特殊
+    说明需要其他 batch（如训练图核对用 batch 64、检测多 batch 验证）。识别模型训练图合同为
+    dynamic batch（gtc targets 需 batch-aligned），导出部署图时固定为 batch 1。
 
 ## 数据与训练合同
 
@@ -120,6 +123,11 @@ cache/                   可再生缓存和历史迁移文件，不作为生产�
   PP-OCRv5 rec 当前固定为 `3x48x320`，不得把动态高度传播到 QuantONNX 输入。
 - optimizer 名称、SGD momentum 和 dynamic heights 都属于 checkpoint resume 合同；任一项变化后
   必须从浮点权重重新 prepare，不能恢复旧 Adam/static-shape checkpoint。
+- **QAT 优化器只允许 AdamW 或 SGD**（profile `optimizer: AdamW|SGD`）。不要使用 `Adam`：
+  Adam 的 L2 weight decay 与 LSQ 的梯度缩放（`use_grad_scaling`）叠加会错误衰减
+  learnable scale/zero_point 量化参数，易导致 QAT 早期发散。QAT 是预训练权重的
+  量化域微调，学习率应远低于浮点训练（当前基线 lr 3e-5、warmup 5、Cosine 调度；
+  Paddle 浮点训练的 5e-4 仅作参考，不得直接用于 QAT）。
 - 非有限 loss、缺失梯度和非有限梯度必须立即失败，不能跳过 batch。
 - `--resume` 必须通过 metadata 合同检查并以 `strict=True` 加载 model state。
 - checkpoint 需要保存训练 profile、QAT JSON 路径、模型配置、输入 shape、PyTorch 版本、
@@ -173,6 +181,32 @@ precision、recall、hmean；识别需比较 CTC logits、softmax probability、
 QuantONNX 语义基线必须使用 `ORT_DISABLE_ALL`。ORT graph optimization 只能作为独立诊断；本项目
 已有识别模型出现 checker/session 均通过但优化后 argmax agreement 下降的案例。
 
+## 远端 Axera 编译产物 debug
+
+上板/编译产物的精度核验与结构对比通过远端工具链进行，访问方式见仓库根目录 `tools.md`
+（目标机 IP/账号、Pulsar2 工具链环境、工作目录、`compare_onnx_ax.py` 仿真对比脚本路径）。
+
+关键注意点：
+
+- **工具链会对 QuantONNX 做一次 frontend 优化**，生成的 `optimized.onnx` 节点可能被重命名/
+  融合/拆分，导致基于原始 QuantONNX 生成的 Pulsar2 转换配置里 `layer_names`（attention S8 覆盖、
+  requant 边界等）查找不到。排查时必须先查看 `output_dir/frontend/optimized.onnx` 的实际节点，
+  再回填/重建配置。
+- **编译产物与 QuantONNX 精度对齐**优先用 `compare_onnx_ax.py`（远端工作目录）逐样本对比
+  axmodel 与 onnx 的 CTC logits（max_abs/MAE/argmax agreement、序列 acc/norm_edit_dis），
+  以区分预处理差异、Pulsar2 frontend 优化差异与真实量化损失。
+- 目标端/远端评估可用 `cache/eval_rec_ax.py`（axengine + CPU ORT 双后端，自带预处理与 CTC
+  解码）与 `cache/eval_rec_onnx.py`（仅 CPU ORT，零 torch/pytorchocr 依赖）核对。
+- 上板精度与 ONNX 精度对不齐时，先跑仿真对比（axmodel vs onnx），不要直接推断为训练/量化
+  配置问题。
+- **per-layer dump 的 dtype 陷阱**：`pulsar2 run --enable_perlayer_output` 的中间层 bin 是
+  量化整型，float32 输出层是 float32。S8 层（zp=0，有符号）必须用 `int8` 读，反量化
+  `q * scale`；U8 层（zp≠0，无符号）必须用 `uint8` 读，反量化 `(q - zp) * scale`。
+  用错 dtype 会把 S8 负值位移成大数误判“饱和”、把 U8 当 S8 误判值域错位——本项目
+  exp13 排查中两处都踩过，最终确认 attention S8/S8→U8 在 NPU 上正确、无饱和，
+  真实差异源是 CNN 下采样路径的 U8 激活量化精度不足（8bit 固有代价）。
+  排查记录见 `docs/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md` §40.2（exp13 逐层对比，原独立记录已并入）。
+
 ## 常用命令
 
 全量测试：
@@ -217,7 +251,8 @@ PP-OCRv5 recognition 修改图或 qspec 后，使用：
 
 - `.codex/skills/ppocr-qat-config-discovery` 为所有 det/rec 模型重新发现 Attention 区域并检查 QAT JSON；
 - `.codex/skills/ppocrv5-rec-pulsar2-config` 从本次实际 QuantONNX 生成和验证 Pulsar2 配置；
-- `.codex/skills/ppocr-pt2e-qat` 执行通用训练、导出和验收流程。
+- `.codex/skills/ppocr-pt2e-qat` 执行通用训练、导出和验收流程；
+- `.codex/skills/ppocr-quantized-domain-fold` 把非重参化 QAT checkpoint 折叠为单分支并 finetune（量化域折叠；注意 qspec 节点名随图形态变化，训练图/折叠图 scale Mul 需同时命中）。常态化主入口为 `tools/finetune_folded.py`，公共逻辑在 `pytorchocr/quantization/folding.py`，skill 脚本为兼容封装。
 
 ## 修改与文档要求
 

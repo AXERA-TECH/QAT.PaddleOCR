@@ -49,6 +49,7 @@ class Trainer:
         teacher=None,
         kd_criterion=None,
         kd_weight=1.0,
+        freeze_kept_bn_stats=False,
     ):
         self.model = model
         self.criterion = criterion
@@ -60,6 +61,7 @@ class Trainer:
         self.teacher = teacher
         self.kd_criterion = kd_criterion
         self.kd_weight = float(kd_weight)
+        self._freeze_kept_bn_stats = bool(freeze_kept_bn_stats)
         if (teacher is None) != (kd_criterion is None):
             raise ValueError(
                 "Knowledge distillation requires both a teacher and a KD criterion."
@@ -96,7 +98,40 @@ class Trainer:
             move_exported_model_to_eval(self.model)
         # PT2E mode replacement can introduce fresh CPU control tensors.
         self.model.to(self.device)
+        if training and self._freeze_kept_bn_stats:
+            # move_exported_model_to_train rebuilds the graph and resets
+            # batch_norm momentum args; re-pin kept-BN momentum to 0.0 so
+            # their running statistics stay frozen during QAT training.
+            from pytorchocr.quantization.bridge import (
+                freeze_kept_bn_running_stats,
+            )
+
+            freeze_kept_bn_running_stats(self.model)
         self._exported_mode = requested_mode
+
+    def _any_observer_enabled(self):
+        """Whether any FakeQuantize observer is currently enabled.
+
+        LSQ's ``_LearnableFakeQuantize`` gates observer updates on
+        ``static_enabled`` (not ``observer_enabled``); torch's
+        ``disable_observer`` only clears ``observer_enabled``, so the
+        learnable modules must be checked via ``static_enabled``. Plain
+        FakeQuantize modules are checked via ``observer_enabled``.
+        """
+        from torch.ao.quantization._learnable_fake_quantize import (
+            _LearnableFakeQuantize,
+        )
+        from torch.ao.quantization.fake_quantize import FakeQuantizeBase
+
+        for module in self.model.modules():
+            if isinstance(module, _LearnableFakeQuantize):
+                if bool(module.static_enabled[0]):
+                    return True
+            elif isinstance(module, FakeQuantizeBase) and bool(
+                module.observer_enabled[0]
+            ):
+                return True
+        return False
 
     def _forward(self, images, targets):
         is_full_recognition = (
@@ -218,6 +253,7 @@ class Trainer:
     def evaluate(self, loader, metric=None):
         if metric is not None:
             metric.reset()
+        observers_enabled_on_entry = self._any_observer_enabled()
         batch_counters = {
             name: buffer.detach().clone()
             for name, buffer in self.model.named_buffers()
@@ -275,7 +311,12 @@ class Trainer:
                 )
                 getattr(owner, buffer_name).copy_(value)
             if not self.observers_frozen:
-                self.model.apply(enable_observer)
+                # Restore the observer state from before validation. LSQ
+                # training keeps observers disabled after its statistics pass;
+                # unconditionally re-enabling them would rerun the expensive
+                # HistogramObserver parameter search on every training step.
+                if observers_enabled_on_entry:
+                    self.model.apply(enable_observer)
         if steps == 0:
             raise ValueError("Validation loader is empty.")
         results = {name: value / steps for name, value in totals.items()}

@@ -107,8 +107,12 @@ class ConvBNLayer(nn.Module):
         return x
 
     @torch.no_grad()
-    def rep(self):
-        if self.is_repped:
+    def rep(self, insert_identity_bn=False):
+        # Keep the pretrained BN: the reparameterized structure is conv + bn
+        # instead of a bare fused conv. The BN running stats match the real
+        # data distribution, so QAT training (batch stats) and validation
+        # (running stats) stay consistent.
+        if insert_identity_bn or self.is_repped:
             return
         conv, bn = self.conv, self.bn
         scale = bn.weight / torch.sqrt(bn.running_var + bn.eps)
@@ -186,11 +190,16 @@ class LearnableRepLayer(nn.Module):
 
         self.lab = LearnableAffineBlock(lr_mult=lr_mult, lab_lr=lab_lr)
         self.act = Act(lr_mult=lr_mult, lab_lr=lab_lr)
+        self.keep_bn = False
+        self.bn = None
 
     def forward(self, x):
         # for export
         if self.is_repped:
-            out = self.lab(self.reparam_conv(x))
+            out = self.reparam_conv(x)
+            if self.keep_bn:
+                out = self.bn(out)
+            out = self.lab(out)
             if self.stride != 2:
                 out = self.act(out)
             return out
@@ -210,10 +219,30 @@ class LearnableRepLayer(nn.Module):
             out = self.act(out)
         return out
 
-    def rep(self):
+    @torch.no_grad()
+    def rep(self, insert_identity_bn=False):
         if self.is_repped:
             return
         kernel, bias = self._get_kernel_bias()
+        if insert_identity_bn:
+            # Standard fusion (no reference-branch scaling): the fused conv
+            # exactly equals the original multi-branch output. The kept BN
+            # starts as an identity placeholder (gamma=1, beta=0, mean=0,
+            # var=1) and must be initialized with measured statistics of the
+            # fused-conv output before QAT training
+            # (pytorchocr.quantization.initialize_kept_bn_statistics,
+            # QARepVGG insert_bn style): gamma=std, beta=mean,
+            # running_mean=mean, running_var=var, which makes
+            # BN(conv_fused(x)) == conv_fused(x) an identity so the
+            # reparameterized conv+bn matches the original output exactly.
+            kept_bn = nn.BatchNorm2d(self.out_channels)
+            kept_bn.weight._paddle_weight_decay = 0.0
+            kept_bn.bias._paddle_weight_decay = 0.0
+            self.bn = kept_bn
+            self.keep_bn = True
+        else:
+            self.bn = None
+            self.keep_bn = False
         self.reparam_conv = nn.Conv2d(
             in_channels=self.in_channels,
             out_channels=self.out_channels,
@@ -354,9 +383,9 @@ class LCNetV3Block(nn.Module):
         x = self.pw_conv(x)
         return x
 
-    def rep(self):
-        self.dw_conv.rep()
-        self.pw_conv.rep()
+    def rep(self, insert_identity_bn=False):
+        self.dw_conv.rep(insert_identity_bn=insert_identity_bn)
+        self.pw_conv.rep(insert_identity_bn=insert_identity_bn)
 
 
 class PPLCNetV3(nn.Module):
@@ -506,12 +535,12 @@ class PPLCNetV3(nn.Module):
             x = F.avg_pool2d(x, [3, 2])
         return x
 
-    def rep(self):
+    def rep(self, insert_identity_bn=False):
         """Fold all ConvBN branches before PT2E capture."""
         if getattr(self, "is_repped", False):
             return
-        self.conv1.rep()
+        self.conv1.rep(insert_identity_bn=insert_identity_bn)
         for stage_name in ("blocks2", "blocks3", "blocks4", "blocks5", "blocks6"):
             for block in getattr(self, stage_name):
-                block.rep()
+                block.rep(insert_identity_bn=insert_identity_bn)
         self.is_repped = True

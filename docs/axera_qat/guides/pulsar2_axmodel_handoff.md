@@ -153,46 +153,46 @@ ORT 默认 graph optimization 会改变当前 QDQ 图的任务指标，不能作
 
 ## 5. PP-OCRv5 mobile rec 候选配置
 
-当前 v5-rec smoke 使用全局 U16 activation、S16 weight，并为两个 SVTR Attention 显式建立连续
-S16 域。最新 QuantONNX 为：
+**当前合同（2026-08-18）**:U8/S8 全局 + Attention S8 + 下采样链 S16（exp15/16）。
+正式 QuantONNX 与 Pulsar2 配置以 exp16 best checkpoint 产物为准:
 
 ```text
-/tmp/ppocrv5_mobile_rec_global_u16s16_attn_s16_qat_smoke_20260806.onnx
-input:  images [1,3,48,320] FP32
-output: logits [1,40,18385] FP32
-Pad / BN: 0 / 0
-activation Q zero-point: U16 223 / S16 20
-quantized rank>=2 weight: S16 47
-Attention: 2 x (QKV U16->S16, MatMul S16/S16->S16, Softmax S16, MatMul S16/S16->U16)
-SiLU: 7 x boundary-only QDQ，内部 QDQ 0
-direct/requant DQ->Q: 0 / 0
-Identity-isolated boundary: 1 x U16->U16，位于 Attention 外 Pool/Conv qparam 边界
+QuantONNX: exports/quantonnx/exp16_u8s8_downsample_s16_reparam/
+           ppocrv5_mobile_rec_exp16_u8s8_downsample_s16_reparam_qdq.onnx
+Pulsar2:   artifacts/pulsar2/exp16_u8s8_downsample_s16/
+           ppocrv5_mobile_rec_exp16_u8s8.json(.report.json)
+结构:      941 节点、Q 243 / DQ 429、激活 zp dtype S8 20 / U8 198(另 S16 25 于下采样链)、
+           Attention 2 x (QKV S8, MatMul S8/S8->S8, Softmax S8, MatMul S8/S8->U8)、
+           Identity 1(avg_pool 输出 U8->U8 尺度边界)
 ```
 
-该合同必须显式包含 Attention S16 区域。只有全局 U16/S16 而没有 QKV、scale Mul、两次 MatMul 和
-Softmax 的区域规则，会在 Attention 内重新落回 U16 域并产生 requant，不能视为完整 16-bit 配置。
+- 板端验收（2026-08-18）:exp16 上板 acc **0.58449** vs ORT 全量 **0.58546**
+  （差 0.001）;exp13 的 0.044 上板差距已随下采样链 S16 消除;
+- 编译注意:远端 frontend 会把 QKV 的 `MatMul + Add` 融合为 `op_N:onnx.FullyConnected`,
+  Pulsar2 配置的 QKV `layer_names` 必须按 `output_dir/frontend/optimized.onnx` 实际节点
+  remap（exp16 为 `op_8`/`op_12`）,本地生成配置与远端 remap 版本可不同;
+- 下采样链 S16 域包含 conv2d_29-32、lab mul/add 链与 avg_pool 输入,注意 S16 域 dyadic
+  标量 Mul 的 Axera 约束（操作数序与 int16 标量）已在导出端处理,重训/重导后需复核。
 
-Pulsar2 配置不得复制旧 ONNX 节点名，使用项目 skill 从该精确文件生成和校验。当前静态校验产物为：
+**历史合同（已替代,仅追溯）**:2026-08-06 全局 U16 activation、S16 weight + Attention
+连续 S16 域（`/tmp/ppocrv5_mobile_rec_global_u16s16_attn_s16_qat_smoke_20260806.onnx`,
+U16 223 / S16 20）。该合同要求显式包含 QKV、scale Mul、两次 MatMul 和 Softmax 的区域规则,
+否则 Attention 内落回 U16 域产生 requant;现已被 U8/S8 部署位宽路线替代（U16/S16 最优
+exp12a 0.6172,仅作精度上限参考,不用于部署）。
+
+Pulsar2 配置不得复制旧 ONNX 节点名，使用项目 skill 从最终 QuantONNX 精确文件生成和校验:
 
 ```text
 .codex/skills/ppocrv5-rec-pulsar2-config/
-/tmp/ppocrv5_mobile_rec_global_u16s16_attn_s16_pulsar2_20260806.json
-/tmp/ppocrv5_mobile_rec_global_u16s16_attn_s16_pulsar2_20260806.report.json
 ```
 
-配置固定 `model_type=QuantONNX`、`target_hardware=AX650`、`npu_mode=NPU3`，并为 QKV output、
-Attention S16 core 和第二 MatMul S16 input 生成三组 `layer_configs`。第二 MatMul output 由 ONNX
-QDQ 回到全局 U16。静态校验发现两个 Attention、7 个 SiLU 和一个 Attention 外 Pool/Conv 必要
-qparam 边界；该边保持可见，不由配置伪装消除。
+配置固定 `model_type=QuantONNX`、`target_hardware=AX650`、`npu_mode=NPU3`。Pulsar2 frontend
+会把 `nn.Linear` 对应的 `Transpose + MatMul + Add` 降低为 `FullyConnected`,这是 rank-3
+Linear 的目标端 lowering,不要求 Paddle→PyTorch 输出自定义 FC/Gemm;保持
+`nn.Linear -> aten.linear` 才能继续使用现有 PT2E Linear annotator。
 
-Pulsar2 frontend 会把该模型已有 9 个 `nn.Linear` 对应的 `Transpose + MatMul + Add` 降低为
-`FullyConnected`。这是 rank-3 Linear 的目标端 lowering，不要求 Paddle→PyTorch 输出自定义
-FC/Gemm；保持 `nn.Linear -> aten.linear` 才能继续使用现有 PT2E Linear annotator。
-
-当前文件是初始化 observer 的预训练 smoke，不是正式 QAT 权重。Exp2 的 debug QuantONNX 也只用于
-结构检查，不能作为正式编译输入。用户确认新的 smoke 结构且真实数据阶段精度门禁通过后，才可以从
-best checkpoint 导出正式 QuantONNX，并必须针对最终文件重新生成和校验配置；不能复用历史节点名、
-qparams 或配置报告。
+每次从新 checkpoint 导出 QuantONNX 后,必须针对最终文件重新生成和校验配置;不能复用历史
+节点名、qparams 或配置报告。
 
 ## 6. PP-OCRv5/v4 扩展契约
 

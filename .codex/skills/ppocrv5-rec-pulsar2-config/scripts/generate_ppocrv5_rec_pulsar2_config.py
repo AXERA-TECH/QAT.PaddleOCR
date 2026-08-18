@@ -55,6 +55,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-attention", type=int, default=2)
     parser.add_argument("--expected-requant", type=int, default=1)
     parser.add_argument("--expected-silu", type=int, default=7)
+    parser.add_argument(
+        "--attention-dtype",
+        choices=("S8", "S16"),
+        default="S16",
+        help=(
+            "Signed dtype inside the SVTR attention core. S16 matches the "
+            "16-bit contract (softmax·V output U16); S8 matches the 8-bit "
+            "contract (softmax·V output U8)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -77,7 +87,8 @@ def tensor_shape(value_info: onnx.ValueInfoProto) -> list[int | str | None]:
         if dimension.HasField("dim_value"):
             result.append(int(dimension.dim_value))
         elif dimension.HasField("dim_param"):
-            result.append(dimension.dim_param)
+            param = dimension.dim_param
+            result.append(int(param) if param.isdigit() else param)
         else:
             result.append(None)
     return result
@@ -228,7 +239,8 @@ def require_output_dtype(index: GraphIndex, node: onnx.NodeProto, expected: str)
         raise RuntimeError(f"{node.name} output must be {expected}, got {sorted(actual)}")
 
 
-def discover_attention(index: GraphIndex, expected: int) -> list[dict[str, Any]]:
+def discover_attention(index: GraphIndex, expected: int, attention_dtype: str = "S16") -> list[dict[str, Any]]:
+    unsigned_output = "U8" if attention_dtype == "S8" else "U16"
     regions: list[dict[str, Any]] = []
     for softmax in (node for node in index.nodes if node.op_type == "Softmax"):
         first = exactly_one(index.nearest_upstream(softmax.input[0], "MatMul"), f"first MatMul for {softmax.name}")
@@ -251,21 +263,25 @@ def discover_attention(index: GraphIndex, expected: int) -> list[dict[str, Any]]
         unsupported = [node for node in core if node.op_type not in REGION_OPS]
         if unsupported:
             raise RuntimeError(
-                f"Unsupported operators in {softmax.name} S16 region: "
+                f"Unsupported operators in {softmax.name} {attention_dtype} region: "
                 f"{[(node.name, node.op_type) for node in unsupported]}"
             )
         if first.name not in {node.name for node in core} or softmax.name not in {node.name for node in core}:
-            raise RuntimeError(f"Incomplete S16 core for {softmax.name}")
-        require_output_dtype(index, qkv, "S16")
+            raise RuntimeError(f"Incomplete {attention_dtype} core for {softmax.name}")
+        require_output_dtype(index, qkv, attention_dtype)
         for node in core:
-            require_output_dtype(index, node, "S16")
+            require_output_dtype(index, node, attention_dtype)
         first_inputs = [index.input_qdtype(first, position) for position in range(2)]
         second_inputs = [index.input_qdtype(second, position) for position in range(2)]
-        if first_inputs != ["S16", "S16"]:
-            raise RuntimeError(f"{first.name} inputs must be S16/S16, got {first_inputs}")
-        if second_inputs != ["S16", "S16"]:
-            raise RuntimeError(f"{second.name} inputs must be S16/S16, got {second_inputs}")
-        require_output_dtype(index, second, "U16")
+        if first_inputs != [attention_dtype, attention_dtype]:
+            raise RuntimeError(
+                f"{first.name} inputs must be {attention_dtype}/{attention_dtype}, got {first_inputs}"
+            )
+        if second_inputs != [attention_dtype, attention_dtype]:
+            raise RuntimeError(
+                f"{second.name} inputs must be {attention_dtype}/{attention_dtype}, got {second_inputs}"
+            )
+        require_output_dtype(index, second, unsigned_output)
         regions.append(
             {
                 "qkv_output": qkv.name,
@@ -274,12 +290,12 @@ def discover_attention(index: GraphIndex, expected: int) -> list[dict[str, Any]]
                 "softmax": softmax.name,
                 "second_matmul": second.name,
                 "dtypes": {
-                    "qkv_output": "S16",
+                    "qkv_output": attention_dtype,
                     "first_matmul_inputs": first_inputs,
-                    "first_matmul_output": "S16",
-                    "softmax_output": "S16",
+                    "first_matmul_output": attention_dtype,
+                    "softmax_output": attention_dtype,
                     "second_matmul_inputs": second_inputs,
-                    "second_matmul_output": "U16",
+                    "second_matmul_output": unsigned_output,
                 },
             }
         )
@@ -420,6 +436,7 @@ def inspect_model(
     expected_attention: int,
     expected_requant: int,
     expected_silu: int,
+    attention_dtype: str = "S16",
 ) -> dict[str, Any]:
     model = onnx.load(model_path)
     onnx.checker.check_model(model, full_check=True)
@@ -436,7 +453,7 @@ def inspect_model(
     if output_info["shape"][-1] != expected_classes:
         raise RuntimeError(f"Expected {expected_classes} CTC classes, got {output_info['shape'][-1]}")
     index = GraphIndex(model)
-    attention = discover_attention(index, expected_attention)
+    attention = discover_attention(index, expected_attention, attention_dtype)
     requants = discover_requants(index)
     if len(requants) != expected_requant:
         raise RuntimeError(f"Expected {expected_requant} necessary requants, found {len(requants)}")
@@ -474,6 +491,8 @@ def build_config(args: argparse.Namespace, inspection: dict[str, Any]) -> dict[s
     qkv = [region["qkv_output"] for region in regions]
     core = [name for region in regions for name in region["core"]]
     second = [region["second_matmul"] for region in regions]
+    attention_dtype = args.attention_dtype
+    unsigned_output = "U8" if attention_dtype == "S8" else "U16"
     return {
         "input": str(args.onnx),
         "output_dir": args.output_dir or f"./output_{args.onnx.stem}",
@@ -488,9 +507,13 @@ def build_config(args: argparse.Namespace, inspection: dict[str, Any]) -> dict[s
                 }
             ],
             "layer_configs": [
-                {"layer_names": qkv, "output_data_type": "S16"},
-                {"layer_names": core, "data_type": "S16", "output_data_type": "S16"},
-                {"layer_names": second, "data_type": "S16"},
+                {"layer_names": qkv, "output_data_type": attention_dtype},
+                {
+                    "layer_names": core,
+                    "data_type": attention_dtype,
+                    "output_data_type": attention_dtype,
+                },
+                {"layer_names": second, "data_type": attention_dtype},
             ],
             "conv_bias_data_type": "FP32",
             "precision_analysis": True,
@@ -528,6 +551,7 @@ def main() -> None:
         args.expected_attention,
         args.expected_requant,
         args.expected_silu,
+        args.attention_dtype,
     )
     config = build_config(args, inspection)
     report = {

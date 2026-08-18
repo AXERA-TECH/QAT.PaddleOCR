@@ -1,4 +1,5 @@
 import copy
+import json
 import math
 from pathlib import Path
 
@@ -111,7 +112,14 @@ class AxeraQuantizerAdapter(Quantizer):
         return self.quantizer.validate(model)
 
     def _use_weight_qspec_for_dyadic_static_scalars(self, model):
-        """Quantize static scalar Mul/Add operands as weights, not activations."""
+        """Quantize static scalar Mul/Add operands as weights, not activations.
+
+        The scalar width follows the node's activation domain: S16-domain
+        dyadic ops (e.g. the S16 downsampling chain) get an S16 scalar so the
+        AX650 TENG pixel-repeat packing (p.n * p.ksize) % 256 == 0 holds for
+        W*C=240 layouts (240 * 16 % 256 == 0, while 240 * 8 fails); everything
+        else keeps the global weight qspec (S8).
+        """
         global_config = getattr(self.quantizer, "global_config", None)
         weight_qspec = getattr(global_config, "weight", None)
         if weight_qspec is None:
@@ -120,6 +128,17 @@ class AxeraQuantizerAdapter(Quantizer):
             dtype=weight_qspec.dtype,
             quant_min=weight_qspec.quant_min,
             quant_max=weight_qspec.quant_max,
+            qscheme=torch.per_tensor_symmetric,
+            is_dynamic=weight_qspec.is_dynamic,
+            observer_or_fake_quant_ctr=FakeQuantize.with_args(
+                observer=_SignedScalarMovingAverageObserver,
+                eps=2**-12,
+            ),
+        )
+        scalar_s16_qspec = QuantizationSpec(
+            dtype=torch.int16,
+            quant_min=-32767,
+            quant_max=32767,
             qscheme=torch.per_tensor_symmetric,
             is_dynamic=weight_qspec.is_dynamic,
             observer_or_fake_quant_ctr=FakeQuantize.with_args(
@@ -139,6 +158,12 @@ class AxeraQuantizerAdapter(Quantizer):
             annotation = node.meta.get("quantization_annotation")
             if annotation is None or not annotation._annotated:
                 continue
+            s16_domain = any(
+                getattr(spec, "dtype", None) == torch.int16
+                for input_node, spec in annotation.input_qspec_map.items()
+                if input_node.op != "get_attr"
+            )
+            scalar_qspec = scalar_s16_qspec if s16_domain else scalar_weight_qspec
             for input_node in tuple(annotation.input_qspec_map):
                 if input_node.op != "get_attr":
                     continue
@@ -152,7 +177,7 @@ class AxeraQuantizerAdapter(Quantizer):
                     or value.numel() != 1
                 ):
                     continue
-                annotation.input_qspec_map[input_node] = scalar_weight_qspec
+                annotation.input_qspec_map[input_node] = scalar_qspec
 
     @staticmethod
     def _keep_nonfinite_attention_masks_float(model):
@@ -477,13 +502,16 @@ class FullRecTrainingWrapper(nn.Module):
         return self
 
 
-def reparameterize_for_deploy(model):
+def reparameterize_for_deploy(model, insert_identity_bn=False):
     model.eval()
     for module_name in ("backbone", "neck"):
         module = getattr(model, module_name, None)
         rep = getattr(module, "rep", None)
         if callable(rep):
-            rep()
+            try:
+                rep(insert_identity_bn=insert_identity_bn)
+            except TypeError:
+                rep()
     return model
 
 
@@ -493,10 +521,59 @@ def load_axera_quantizer(config_path, legacy_config_path=None):
     if legacy_config_path is not None:
         config_path = legacy_config_path
     from . import quantized_decomposed_dequantize_per_channel  # noqa: F401
-    from .ax_quantizer import AXQuantizer
 
-    quantizer = AXQuantizer(str(Path(config_path).resolve()))
+    config_file = str(Path(config_path).resolve())
+    lsq = _qat_config_flag(config_file, "lsq", False)
+    if lsq:
+        from .ax_quantizer_lsq import AXQuantizer
+    else:
+        from .ax_quantizer import AXQuantizer
+
+    quantizer = AXQuantizer(config_file)
     return AxeraQuantizerAdapter(quantizer)
+
+
+def _qat_config_flag(config_file, key, default=False):
+    """Read a top-level boolean flag from an Axera QAT JSON config."""
+    try:
+        with open(config_file, encoding="utf-8") as stream:
+            config = json.load(stream)
+    except (OSError, ValueError):
+        return default
+    value = config.get(key, default)
+    return bool(value)
+
+
+def is_lsq_config(config_path):
+    """Whether the QAT JSON enables the LSQ quantizer (top-level "lsq": true)."""
+    return _qat_config_flag(str(config_path), "lsq", False)
+
+
+def enable_learn(module):
+    """Enable learnable-scale QAT on a module, if applicable.
+
+    Scale-only LSQ: the zero_point parameter stays frozen at its static value.
+    Learning both scale and zero_point from a zero-initialized zero_point
+    diverges quickly for affine U16 domains (loss explodes within a few
+    training steps).
+    """
+    from torch.ao.quantization._learnable_fake_quantize import (
+        _LearnableFakeQuantize,
+    )
+
+    if isinstance(module, _LearnableFakeQuantize):
+        module.enable_param_learning()
+        # module.zero_point.requires_grad = False
+
+
+def disable_learn(module):
+    """Disable learnable-scale QAT on a module, if applicable."""
+    from torch.ao.quantization._learnable_fake_quantize import (
+        _LearnableFakeQuantize,
+    )
+
+    if isinstance(module, _LearnableFakeQuantize):
+        module.toggle_qparam_learning(False)
 
 
 def build_qat_dynamic_shapes(
@@ -561,7 +638,13 @@ def build_qat_dynamic_shapes(
     return tuple(shapes)
 
 
-def prepare_qat_model(model, example_inputs, quantizer, dynamic_shapes=None):
+def prepare_qat_model(
+    model,
+    example_inputs,
+    quantizer,
+    dynamic_shapes=None,
+    freeze_kept_bn_stats=False,
+):
     exported = torch.export.export_for_training(
         model,
         example_inputs,
@@ -569,8 +652,43 @@ def prepare_qat_model(model, example_inputs, quantizer, dynamic_shapes=None):
     ).module()
     float_node_count = len(list(exported.graph.nodes))
     prepared = prepare_qat_pt2e(exported, quantizer)
+    if freeze_kept_bn_stats:
+        freeze_kept_bn_running_stats(prepared)
     move_exported_model_to_train(prepared)
+    if freeze_kept_bn_stats:
+        # move_exported_model_to_train may rebuild the graph module; re-apply
+        # the momentum pin afterwards so the frozen nodes persist.
+        freeze_kept_bn_running_stats(prepared)
     return prepared, float_node_count
+
+
+def freeze_kept_bn_running_stats(prepared):
+    """Pin kept-BN momentum to 0.0 in the prepared PT2E graph.
+
+    The eager BatchNorm momentum does not survive export: the prepared graph
+    carries batch_norm as a call_function node with a constant momentum
+    argument. Kept BNs (the ones inserted after rep-fused convs) are
+    identified by their running_mean attribute name containing ``_blocks``.
+    momentum=0.0 keeps running stats fixed during QAT training (locking the
+    folding denominator gamma/sqrt(var+eps)) while training still normalizes
+    with batch stats and gamma/beta stay trainable.
+    """
+    frozen = 0
+    for node in prepared.graph.nodes:
+        if node.op != "call_function" or "batch_norm" not in str(node.target):
+            continue
+        if len(node.args) < 7:
+            continue
+        running_mean_target = str(node.args[3])
+        if "_blocks" not in running_mean_target:
+            continue
+        updated_args = list(node.args)
+        updated_args[6] = 0.0
+        node.args = tuple(updated_args)
+        frozen += 1
+    prepared.graph.lint()
+    prepared.recompile()
+    return frozen
 
 
 def initialize_weight_observers(prepared):
@@ -652,4 +770,143 @@ def convert_prepared_model(prepared):
     model = copy.deepcopy(prepared)
     converted = convert_pt2e(model)
     move_exported_model_to_eval(converted)
+    # convert_pt2e rebuilds the graph module; preserve graph identity
+    # attributes so trainers/evaluators can detect full-recognition graphs.
+    for attribute in ("graph_role", "model_type", "output_names"):
+        if hasattr(prepared, attribute):
+            setattr(converted, attribute, getattr(prepared, attribute))
     return converted
+
+
+def initialize_kept_bn_statistics(
+    model,
+    loader,
+    steps,
+    rec_multi_head=False,
+    momentum=0.9,
+    device=None,
+    training_momentum=None,
+    freeze_bn_stats=False,
+):
+    """Measure fused-conv output statistics for kept identity BNs.
+
+    QARepVGG insert_bn style: run ``steps`` batches through the eager
+    (reparameterized) model, accumulate the per-channel mean/variance of every
+    kept BN's input (the fused conv output), then set
+
+        running_mean = measured mean
+        running_var  = measured variance
+        gamma        = sqrt(running_var + eps)
+        beta         = measured mean
+
+    which makes ``BN(conv_fused(x)) == conv_fused(x)`` an identity mapping, so
+    the reparameterized conv+bn matches the original multi-branch output
+    exactly and QAT training/validation statistics agree.
+
+    ``training_momentum`` optionally overrides the BatchNorm momentum used
+    during QAT training: a larger value makes running_var track the trained
+    gamma faster. Tiny measured variances (e.g. 1e-11) keep gamma/sqrt(var+eps)
+    near 1 only while running_var stays fresh; with the default 0.1 momentum
+    the running_var lags behind the learned gamma and eval (running-stats)
+    inference amplifies those channels (up to NaN).
+
+    ``freeze_bn_stats`` pins the BatchNorm momentum to 0.0 so the measured
+    running_mean/running_var never update during QAT training. This locks the
+    folding denominator gamma/sqrt(var+eps) to its initialization value and
+    prevents the "BN folding explosion" caused by gamma drifting away from a
+    stale (tiny) running_var; gamma and beta remain trainable per-channel
+    linear scales.
+
+    Returns the number of kept BNs that were initialized.
+    """
+    from pytorchocr.modeling.backbones.rec_lcnetv3 import LearnableRepLayer
+
+    layers = [
+        module
+        for module in model.modules()
+        if isinstance(module, LearnableRepLayer) and module.keep_bn
+    ]
+    if not layers:
+        return 0
+    for layer in layers:
+        layer.keep_bn = False
+    accumulated = {}
+    handles = []
+    for index, layer in enumerate(layers):
+        key = f"bn_{index}"
+        accumulated[key] = {
+            "mean": torch.zeros(
+                layer.out_channels,
+                device=layer.reparam_conv.weight.device,
+            ),
+            "var": torch.zeros(
+                layer.out_channels,
+                device=layer.reparam_conv.weight.device,
+            ),
+            "count": 0,
+        }
+
+        def make_hook(key):
+            def hook(module, inputs, outputs):
+                value = outputs if isinstance(outputs, torch.Tensor) else outputs[0]
+                value = value.detach().float()
+                mean = value.mean(dim=(0, 2, 3))
+                var = ((value - mean.view(1, -1, 1, 1)) ** 2).mean(dim=(0, 2, 3))
+                state = accumulated[key]
+                if state["count"] == 0:
+                    state["mean"].copy_(mean)
+                    state["var"].copy_(var)
+                else:
+                    state["mean"].mul_(momentum).add_(mean * (1.0 - momentum))
+                    state["var"].mul_(momentum).add_(var * (1.0 - momentum))
+                state["count"] += 1
+
+            return hook
+
+        handles.append(layer.reparam_conv.register_forward_hook(make_hook(key)))
+    try:
+        for _ in range(int(steps)):
+            images, batch_targets = next(iter(loader))
+            if device is not None:
+                images = images.to(device, non_blocking=True)
+                batch_targets = {
+                    key: (
+                        value.to(device, non_blocking=True)
+                        if torch.is_tensor(value)
+                        else value
+                    )
+                    for key, value in batch_targets.items()
+                }
+            with torch.no_grad():
+                if rec_multi_head:
+                    model(images, batch_targets["gtc_targets"])
+                else:
+                    model(images)
+    finally:
+        for handle in handles:
+            handle.remove()
+    for index, layer in enumerate(layers):
+        key = f"bn_{index}"
+        state = accumulated[key]
+        if state["count"] == 0:
+            raise RuntimeError("Kept BN statistics pass consumed no batches.")
+        bn = layer.bn
+        # Variance floor: tiny measured variances (e.g. 1e-11 from dead
+        # channels) make gamma / sqrt(var+eps) blow up once gamma drifts
+        # during QAT training (BN folding explosion, ratio up to ~2000).
+        # Clamping the variance bounds the folding coefficient; gamma is
+        # initialized from the floored variance so the identity mapping
+        # BN(conv_fused(x)) == conv_fused(x) is preserved.
+        safe_var = torch.clamp(state["var"], min=1e-4)
+        bn.running_mean.copy_(state["mean"])
+        bn.running_var.copy_(safe_var)
+        bn.weight.data.copy_((safe_var + bn.eps).sqrt())
+        bn.bias.data.copy_(state["mean"])
+        if freeze_bn_stats:
+            # momentum=0.0 keeps running stats fixed while training still
+            # normalizes with batch stats and gamma/beta stay trainable.
+            bn.momentum = 0.0
+        elif training_momentum is not None:
+            bn.momentum = float(training_momentum)
+        layer.keep_bn = True
+    return len(layers)

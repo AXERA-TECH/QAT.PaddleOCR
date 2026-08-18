@@ -22,7 +22,8 @@ python .codex/skills/ppocrv5-rec-pulsar2-config/scripts/generate_ppocrv5_rec_pul
 The generator discovers both SVTR attention regions by topology and semantic QKV bias names. It
 requires the following QuantONNX contract before writing anything:
 
-- one FP32 NCHW input with default shape `[1, 3, 48, 320]`;
+- one FP32 NCHW input with default shape `[1, 3, 48, 320]` (deployment export defaults to
+  `batchSize=1`; use `--expected-input-shape` when the ONNX batch differs for a specific task);
 - one FP32 rank-3 CTC logits output with default class count `18385`;
 - exactly two `MatMul -> Softmax -> MatMul` attention regions;
 - QKV Linear output, scale path, first MatMul and Softmax remain S16;

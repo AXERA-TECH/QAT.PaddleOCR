@@ -1,6 +1,8 @@
 import argparse
+import faulthandler
 import json
 import random
+import signal
 import sys
 import warnings
 from pathlib import Path
@@ -17,8 +19,21 @@ from pytorchocr.quantization import (
     FullRecTrainingWrapper,
     build_qat_dynamic_shapes,
     convert_prepared_model,
+    disable_learn,
+    enable_learn,
+    initialize_kept_bn_statistics,
+    initialize_weight_observers,
+    is_lsq_config,
     load_axera_quantizer,
     prepare_qat_model,
+)
+from torch.ao.quantization import (
+    disable_fake_quant,
+    disable_observer,
+    enable_fake_quant,
+    enable_observer,
+    move_exported_model_to_eval,
+    move_exported_model_to_train,
 )
 from pytorchocr.training import (
     RecognitionMultiScaleBatchSampler,
@@ -41,6 +56,21 @@ from pytorchocr.training import (
     update_best_validation,
     validate_resume_contract,
 )
+from pytorchocr.training.profile import copy_run_configs
+
+
+def _round_summary_floats(summary):
+    """Round every float in the summary dict to 6 decimal places for logging."""
+    return {
+        key: (
+            round(value, 6)
+            if isinstance(value, float)
+            else _round_summary_floats(value)
+            if isinstance(value, dict)
+            else value
+        )
+        for key, value in summary.items()
+    }
 
 
 def parse_args():
@@ -151,6 +181,55 @@ def parse_args():
         help="Default: enabled for QAT and disabled for float training.",
     )
     parser.add_argument(
+        "--insert-identity-bn",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Insert identity BatchNorm2d after every fused conv before PT2E "
+            "QAT prepare (fusion pass is kept enabled)."
+        ),
+    )
+    parser.add_argument(
+        "--bn-statistics-steps",
+        type=int,
+        default=None,
+        help=(
+            "Batches used to measure fused-conv statistics for kept identity "
+            "BNs (QARepVGG insert_bn style) before QAT prepare."
+        ),
+    )
+    parser.add_argument(
+        "--bn-training-momentum",
+        type=float,
+        default=None,
+        help=(
+            "BatchNorm running-stats momentum used during QAT training for "
+            "kept identity BNs; larger values (e.g. 0.9) keep running_var "
+            "fresh so gamma/sqrt(var+eps) stays bounded at eval time."
+        ),
+    )
+    parser.add_argument(
+        "--freeze-bn-stats",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Freeze kept-BN running statistics during QAT training "
+            "(momentum=0.0): locks the folding denominator "
+            "gamma/sqrt(var+eps) to its initialized value and prevents BN "
+            "folding explosion; gamma/beta stay trainable."
+        ),
+    )
+    parser.add_argument(
+        "--lsq",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Use the learnable-step-size (LSQ) quantizer; requires a QAT JSON "
+            "with top-level 'lsq': true."
+        ),
+    )
+
+    parser.add_argument(
         "--kd",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -231,6 +310,55 @@ def build_kd_layers(args, kd_mode):
     if args.kd_backbone_weight:
         layers["backbone_out"] = ("mse", float(args.kd_backbone_weight))
     return layers
+
+
+def _prepare_lsq_training(model, loader, rec_multi_head, resume=False):
+    """Initialize LSQ scales and enable learnable-step training.
+
+    Follows QAT.Ultralytics.YOLOv5 qat_base_ptq.py:
+    1. static weight observer pass (existing initialize_weight_observers)
+       fills per-channel weight scales while _LearnableFakeQuantize modules are
+       still in static mode;
+    2. enable_param_learning() on every _LearnableFakeQuantize module;
+    3. one statistics forward (fake quant off, observer on) over the first
+       loader batch to initialize activation scales, then switch fake quant
+       back on and observers off.
+
+    When resuming, scales already carry trained values from the checkpoint:
+    only re-enable learning and skip both static initialization passes.
+    """
+    if resume:
+        model.apply(enable_learn)
+        return
+    # Static weight-parameter statistics FIRST while every module is still in
+    # static mode (enable_learn would disable observer updates and leave the
+    # weight scales at their default value, collapsing quantized weights).
+    initialize_weight_observers(model)
+    model.apply(enable_learn)
+    images, targets = next(iter(loader))
+    images = images.detach()
+    targets = _detach_targets(targets)
+    model.apply(disable_fake_quant)
+    model.apply(enable_observer)
+    try:
+        with torch.no_grad():
+            if rec_multi_head:
+                model(images, targets["gtc_targets"])
+            else:
+                model(images)
+    finally:
+        model.apply(enable_fake_quant)
+        model.apply(disable_observer)
+
+
+def _detach_targets(targets):
+    if torch.is_tensor(targets):
+        return targets.detach()
+    if isinstance(targets, dict):
+        return {key: _detach_targets(value) for key, value in targets.items()}
+    if isinstance(targets, (tuple, list)):
+        return [_detach_targets(value) for value in targets]
+    return targets
 
 
 def train(args):
@@ -453,6 +581,24 @@ def train(args):
     reparameterize = bool(
         profile_value(args.reparameterize, profile, "reparameterize", qat)
     )
+    lsq = bool(config_value(args.lsq, profile.training.get("lsq", False) if profile else False))
+    insert_identity_bn = bool(
+        config_value(
+            args.insert_identity_bn,
+            profile.training.get("insert_identity_bn", False) if profile else False,
+        )
+    )
+    freeze_bn_stats = False
+    if lsq and not qat:
+        raise ValueError("--lsq is only valid for QAT training.")
+    if insert_identity_bn and not qat:
+        raise ValueError("--insert-identity-bn is only valid for QAT training.")
+    if lsq:
+        if not qat_config or not is_lsq_config(qat_config):
+            raise ValueError(
+                "--lsq requires a QAT JSON with top-level 'lsq': true; "
+                "got qat_config={!r}".format(qat_config)
+            )
     kd = bool(config_value(args.kd, profile.training.get("kd", False) if profile else False))
     teacher_weights = config_value(
         args.teacher_weights,
@@ -505,6 +651,7 @@ def train(args):
         det_graph="training" if qat else "pretrained_train",
         rec_ctc_backbone_grad=rec_ctc_backbone_grad,
         rec_graph=rec_graph,
+        insert_identity_bn=insert_identity_bn,
     )
     if kd:
         _set_intermediate_exposure(model, args.task, qat, rec_graph)
@@ -526,11 +673,55 @@ def train(args):
             if multi_scale_training
             else batch_size
         )
+        if insert_identity_bn:
+            bn_statistics_steps = int(
+                profile_value(
+                    args.bn_statistics_steps,
+                    profile,
+                    "bn_statistics_steps",
+                    200,
+                )
+            )
+            if bn_statistics_steps <= 0:
+                raise ValueError("--bn-statistics-steps must be positive.")
+            bn_training_momentum = profile_value(
+                args.bn_training_momentum,
+                profile,
+                "bn_training_momentum",
+                None,
+            )
+            if bn_training_momentum is not None:
+                bn_training_momentum = float(bn_training_momentum)
+                if not 0.0 < bn_training_momentum <= 1.0:
+                    raise ValueError(
+                        "--bn-training-momentum must be in (0, 1]."
+                    )
+            freeze_bn_stats = bool(
+                config_value(
+                    args.freeze_bn_stats,
+                    profile.training.get("freeze_bn_stats", False)
+                    if profile
+                    else False,
+                )
+            )
+        if insert_identity_bn and not args.eval_only and not args.resume:
+            model = model.to(args.device)
+            initialize_kept_bn_statistics(
+                model,
+                loader,
+                bn_statistics_steps,
+                rec_multi_head=rec_multi_head,
+                device=args.device,
+                training_momentum=bn_training_momentum,
+                freeze_bn_stats=freeze_bn_stats,
+            )
+            model = model.cpu()
         quantizer = load_axera_quantizer(qat_config)
         model, float_node_count = prepare_qat_model(
             model,
             example_inputs,
             quantizer,
+            freeze_kept_bn_stats=freeze_bn_stats,
             dynamic_shapes=build_qat_dynamic_shapes(
                 example_images,
                 dynamic_batch=example_images.shape[0] > 1,
@@ -544,8 +735,21 @@ def train(args):
             model.model_type = "rec"
             model.output_names = FullRecTrainingWrapper.output_names
 
+        if lsq and not args.eval_only:
+            _prepare_lsq_training(
+                model,
+                loader,
+                rec_multi_head,
+                resume=bool(args.resume),
+            )
+
     optimizer_override = profile_value(args.optimizer, profile, "optimizer")
     momentum_override = profile_value(args.momentum, profile, "momentum")
+    if qat and optimizer_override not in (None, "AdamW", "SGD", "Momentum"):
+        raise ValueError(
+            "QAT optimizer must be AdamW or SGD (momentum); Adam's L2 weight "
+            f"decay corrupts LSQ learnable scales. Got: {optimizer_override}"
+        )
     optimizer = build_optimizer(
         model,
         config,
@@ -607,6 +811,7 @@ def train(args):
         teacher=teacher,
         kd_criterion=kd_criterion,
         kd_weight=kd_weight if kd else 1.0,
+        freeze_kept_bn_stats=freeze_bn_stats,
     )
     validation_metric = (
         build_validation_metric(args.task, config, config_path=args.model_config)
@@ -615,6 +820,15 @@ def train(args):
     )
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    copied_configs = copy_run_configs(
+        output_dir,
+        model_config=args.model_config,
+        training_profile=profile.path if profile is not None else None,
+        qat_config=qat_config if qat else None,
+        teacher_model_config=(
+            teacher_model_config if kd and teacher_model_config else None
+        ),
+    )
     run_metadata = {
         "task": args.task,
         "model_config": str(Path(args.model_config).resolve()),
@@ -637,8 +851,19 @@ def train(args):
         "qat": qat,
         "qat_config": str(Path(qat_config).resolve()) if qat_config else None,
         "qat_config_sha256": file_sha256(qat_config) if qat_config else None,
+        "copied_configs": {
+            str(Path(source).name): str(destination)
+            for source, destination in copied_configs
+        },
         "torch_version": str(torch.__version__),
         "reparameterized": reparameterize,
+        "lsq": lsq,
+        "insert_identity_bn": insert_identity_bn,
+        "bn_statistics_steps": bn_statistics_steps if insert_identity_bn else None,
+        "bn_training_momentum": (
+            bn_training_momentum if insert_identity_bn else None
+        ),
+        "freeze_bn_stats": freeze_bn_stats if insert_identity_bn else None,
         "kd": kd,
         "kd_mode": kd_mode if kd else None,
         "kd_weight": kd_weight if kd else None,
@@ -743,7 +968,10 @@ def train(args):
         )
         if accuracy_guard is not None:
             summary["epoch2_accuracy_guard"] = accuracy_guard
-        print(json.dumps(summary, sort_keys=True), flush=True)
+        print(
+            json.dumps(_round_summary_floats(summary), sort_keys=True),
+            flush=True,
+        )
         return summary
     start_epoch = trainer.epoch
     for epoch in range(start_epoch, epochs):
@@ -800,7 +1028,10 @@ def train(args):
         )
         if accuracy_guard is not None:
             summary["epoch2_accuracy_guard"] = accuracy_guard
-        print(json.dumps(summary, sort_keys=True), flush=True)
+        print(
+            json.dumps(_round_summary_floats(summary), sort_keys=True),
+            flush=True,
+        )
         is_best = update_best_validation(
             trainer,
             validation,
@@ -834,4 +1065,7 @@ def train(args):
 
 
 if __name__ == "__main__":
+    # Debug aid: SIGUSR1 dumps all Python thread stacks to stderr. Useful to
+    # locate deadlocks in the training loop (DataLoader / CUDA sync).
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
     train(parse_args())

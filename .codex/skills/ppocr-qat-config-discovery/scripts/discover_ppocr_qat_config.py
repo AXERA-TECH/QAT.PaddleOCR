@@ -50,6 +50,39 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
     )
+    parser.add_argument(
+        "--rec-graph",
+        choices=("deploy", "pretrained_train"),
+        default="deploy",
+        help=(
+            "Recognition graph for FX discovery. deploy matches the inference "
+            "QuantONNX; pretrained_train matches the full training graph "
+            "(FullRecTrainingWrapper with gtc targets) used by QAT training."
+        ),
+    )
+    parser.add_argument(
+        "--dynamic-batch",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Match the training dynamic-batch contract. Defaults to True when "
+            "--rec-graph pretrained_train (FullRecTrainingWrapper needs "
+            "batch-aligned inputs), else False. The QAT JSON module names are "
+            "discovered from a graph prepared with the same dynamic-shape "
+            "contract as training, because node numbering shifts when dynamic "
+            "shapes are enabled."
+        ),
+    )
+    parser.add_argument(
+        "--no-proj-entry",
+        action="store_true",
+        help=(
+            "Do not emit the output-projection Linear regional entry. The "
+            "projection (mixer.proj) is FC-like; leaving it on the global "
+            "domain avoids requantize boundaries with the second MatMul "
+            "output (softmax·V -> proj). Default: emit the proj entry."
+        ),
+    )
     parser.add_argument("--check", action="store_true")
     return parser.parse_args()
 
@@ -120,6 +153,17 @@ def discover(
             "QKV Linear",
             owner,
         )
+        proj = exactly_one(
+            [
+                node
+                for node in owned
+                if node.op == "call_function"
+                and node.target in LINEAR_OPS
+                and any(path.endswith(".mixer.proj") for path in module_paths(node))
+            ],
+            "output projection Linear",
+            owner,
+        )
         matmuls = sorted(
             [node for node in owned if node.op == "call_function" and node.target in MATMUL_OPS],
             key=order.__getitem__,
@@ -162,6 +206,7 @@ def discover(
             {
                 "owner": owner,
                 "qkv_linear": qkv.name,
+                "proj_linear": proj.name,
                 "scale_mul": scale_mul.name,
                 "first_matmul": first.name,
                 "softmax": softmax.name,
@@ -170,6 +215,7 @@ def discover(
                     role: [str(item) for item in node.meta.get("source_fn_stack", [])]
                     for role, node in {
                         "qkv_linear": qkv,
+                        "proj_linear": proj,
                         "scale_mul": scale_mul,
                         "first_matmul": first,
                         "softmax": softmax,
@@ -240,6 +286,7 @@ def update_config(
     template: dict[str, Any],
     discovery: dict[str, Any],
     attention_dtype: str,
+    include_proj: bool = True,
 ) -> dict[str, Any]:
     config = copy.deepcopy(template)
     global_config = config.get("global_config", {})
@@ -254,60 +301,108 @@ def update_config(
         global_activation,
     )
     signed = signed_qspec(resolved_attention_dtype)
-    config["regional_configs"] = [
+    regional = [
         {
-            "module_names": [item["qkv_linear"] for item in regions],
-            "module_type": "linear",
-            "module_config": {
-                "is_symmetric": False,
-                "output_is_symmetric": True,
-                "input": global_activation,
-                "output": signed,
-                "weight": global_weight,
-            },
-        },
-        {
-            "module_names": [item["scale_mul"] for item in regions],
-            "module_type": "mul",
-            "module_config": {
-                "is_symmetric": True,
-                "output_is_symmetric": True,
-                "input": signed,
-                "output": signed,
-            },
-        },
-        {
-            "module_names": [item["first_matmul"] for item in regions],
-            "module_type": "matmul",
-            "module_config": {
-                "is_symmetric": True,
-                "output_is_symmetric": True,
-                "input": signed,
-                "output": signed,
-            },
-        },
-        {
-            "module_names": [item["softmax"] for item in regions],
-            "module_type": "softmax",
-            "module_config": {
-                "is_symmetric": True,
-                "output_is_symmetric": True,
-                "input": signed,
-                "output": signed,
-            },
-        },
-        {
-            "module_names": [item["second_matmul"] for item in regions],
-            "module_type": "matmul",
-            "module_config": {
-                "is_symmetric": True,
-                "output_is_symmetric": False,
-                "input": signed,
-                "output": global_activation,
-            },
-        },
+             "module_names": [item["qkv_linear"] for item in regions],
+             "module_type": "linear",
+             "module_config": {
+                 "is_symmetric": False,
+                 "output_is_symmetric": True,
+                 "input": global_activation,
+                 "output": signed,
+                 "weight": global_weight,
+             },
+         },
     ]
+    if include_proj:
+        regional.append(
+            {
+                "module_names": [item["proj_linear"] for item in regions],
+                "module_type": "linear",
+                "module_config": {
+                    "is_symmetric": True,
+                    "input": signed,
+                    "weight": global_weight,
+                },
+            }
+        )
+    regional.extend(
+        [
+        {
+             "module_names": [item["scale_mul"] for item in regions],
+             "module_type": "mul",
+             "module_config": {
+                 "is_symmetric": True,
+                 "output_is_symmetric": True,
+                 "input": signed,
+                 "output": signed,
+             },
+         },
+         {
+             "module_names": [item["first_matmul"] for item in regions],
+             "module_type": "matmul",
+             "module_config": {
+                 "is_symmetric": True,
+                 "output_is_symmetric": True,
+                 "input": signed,
+                 "output": signed,
+             },
+         },
+         {
+             "module_names": [item["softmax"] for item in regions],
+             "module_type": "softmax",
+             "module_config": {
+                 "is_symmetric": True,
+                 "output_is_symmetric": True,
+                 "input": signed,
+                 "output": signed,
+             },
+         },
+         {
+             "module_names": [item["second_matmul"] for item in regions],
+             "module_type": "matmul",
+             "module_config": {
+                 "is_symmetric": True,
+                 "output_is_symmetric": False,
+                 "input": signed,
+                 "output": global_activation,
+             },
+         },
+        ]
+    )
+    config["regional_configs"] = regional
     return config
+
+
+def _config_matches_template(generated: dict[str, Any], template: dict[str, Any]) -> bool:
+    """Union-aware --check comparison.
+
+    Checked-in QAT JSON may carry module names from several graph forms
+    (training graph + folded graph + smoke graph, see training record §39).
+    Regenerating from one graph form can therefore never equal such a template.
+    Accept the generated config when each generated entry is subsumed by a
+    template entry of the same module_type: equal module_config and every
+    generated name present in the template's name list. Template entries that
+    have no generated counterpart (other graph forms, e.g. the S16 downsampling
+    entries) are allowed and must be verified by annotation-level inspection of
+    the target graph instead.
+    """
+    if generated.get("global_config") != template.get("global_config"):
+        return False
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for entry in template.get("regional_configs", []):
+        by_type.setdefault(entry.get("module_type"), []).append(entry)
+    for entry in generated.get("regional_configs", []):
+        module_type = entry.get("module_type")
+        generated_names = set(entry.get("module_names") or [])
+        candidates = by_type.get(module_type, [])
+        if not any(
+            entry.get("module_config") == candidate.get("module_config")
+            and generated_names <= set(candidate.get("module_names") or [])
+            for candidate in candidates
+        ):
+            return False
+    return True
 
 
 def main() -> None:
@@ -338,22 +433,159 @@ def main() -> None:
         weights_path=args.weights,
         reparameterize=args.reparameterize,
         det_graph="inference",
-        rec_graph="deploy",
+        rec_graph=args.rec_graph,
     )
     images = torch.zeros([args.batch_size, *args.image_shape], dtype=torch.float32)
-    gm = torch.export.export_for_training(model, (images,)).module()
+    example_inputs: tuple[Any, ...] = (images,)
+    if task == "rec" and args.rec_graph == "pretrained_train":
+        from pytorchocr.quantization import FullRecTrainingWrapper
+
+        max_text_length = int(model_config["Global"].get("max_text_length", 25))
+        model = FullRecTrainingWrapper(
+            model, max_text_length=max_text_length
+        ).set_qat_capture_mode()
+        example_inputs = (
+            images,
+            torch.zeros(
+                [args.batch_size, max_text_length],
+                dtype=torch.int64,
+            ),
+        )
+    dynamic_batch = (
+        args.batch_size > 1
+        if args.dynamic_batch is None
+        else args.dynamic_batch
+    )
+    batch_aligned = int(task == "rec" and args.rec_graph == "pretrained_train")
+    export_dynamic_shapes = None
+    if dynamic_batch:
+        from pytorchocr.quantization import build_qat_dynamic_shapes
+
+        export_dynamic_shapes = build_qat_dynamic_shapes(
+            images,
+            dynamic_batch=True,
+            dynamic_heights=None,
+            batch_aligned_inputs=batch_aligned,
+            max_batch=args.batch_size,
+        )
+    gm = torch.export.export_for_training(
+        model, example_inputs, dynamic_shapes=export_dynamic_shapes
+    ).module()
+
+    # Discover from the *prepared* graph. QAT regional module names are matched
+    # against the graph produced by prepare_qat_pt2e; node numbering shifts
+    # with the training contract (dynamic batch / batch-aligned gtc targets /
+    # batch size / model wrapper), so a discovery on the raw export graph may
+    # miss entries (e.g. mul_58 vs mul_352). Prepare the ORIGINAL model (not
+    # the already-exported gm: nested export changes numbering) with the same
+    # contract as train.py, then remap discovered names onto it.
+    from pytorchocr.quantization import (
+        build_qat_dynamic_shapes,
+        load_axera_quantizer,
+        prepare_qat_model,
+    )
+
+    prepared, _ = prepare_qat_model(
+        model,
+        example_inputs,
+        load_axera_quantizer(args.base_config),
+        dynamic_shapes=build_qat_dynamic_shapes(
+            images,
+            dynamic_batch=dynamic_batch,
+            dynamic_heights=None,
+            batch_aligned_inputs=batch_aligned,
+            max_batch=args.batch_size,
+        ),
+    )
     discovery = discover(gm, args.expected_attention)
+    # Node numbering shifts between the raw export graph and the prepared
+    # training graph (dynamic shapes insert nodes). Remap every discovered
+    # node to its counterpart in the prepared graph by matching the same
+    # call op under the same module stack.
+    prepared_order: dict[str, int] = {}
+    prepared_by_stack: dict[tuple[str, ...], list[torch.fx.Node]] = defaultdict(list)
+    for position, node in enumerate(prepared.graph.nodes):
+        if node.op != "call_function":
+            continue
+        prepared_order[node.name] = position
+        stack = tuple(module_paths(node))
+        prepared_by_stack[stack].append(node)
+
+    def remap(role_node: torch.fx.Node, role: str) -> torch.fx.Node:
+        target = role_node.target
+        stack = tuple(module_paths(role_node))
+        candidates = [
+            node
+            for node in prepared_by_stack.get(stack, [])
+            if node.target == target
+        ]
+        if len(candidates) == 0:
+            raise RuntimeError(
+                f"Prepared graph counterpart missing for {role_node.name} "
+                f"({target}, stack {stack})"
+            )
+        if len(candidates) == 1:
+            return candidates[0]
+        # Same op under the same module stack (e.g. two MatMul in one mixer):
+        # disambiguate by graph position relative to the other roles of this
+        # region. first_matmul precedes softmax; second_matmul follows it.
+        if role == "first_matmul":
+            softmax_node = gm_names[region["softmax"]]
+            preceding = [
+                node for node in candidates
+                if prepared_order[node.name] < prepared_order[softmax_node.name]
+            ]
+            if len(preceding) == 1:
+                return preceding[0]
+        if role == "second_matmul":
+            softmax_node = gm_names[region["softmax"]]
+            following = [
+                node for node in candidates
+                if prepared_order[node.name] > prepared_order[softmax_node.name]
+            ]
+            if len(following) == 1:
+                return following[0]
+        raise RuntimeError(
+            f"Prepared graph counterpart not unique for {role_node.name} "
+            f"({target}, stack {stack}): {[c.name for c in candidates]}"
+        )
+
+    gm_names = {node.name: node for node in gm.graph.nodes}
+    for region in discovery["attention"]:
+        for role in ("qkv_linear", "proj_linear", "scale_mul", "first_matmul",
+                     "softmax", "second_matmul"):
+            region[role] = remap(gm_names[region[role]], role).name
     template = json.loads(args.base_config.read_text(encoding="utf-8"))
     global_activation, _ = validate_global_qspec(template.get("global_config", {}))
     resolved_attention_dtype = resolve_attention_dtype(
         args.attention_dtype,
         global_activation,
     )
-    generated = update_config(template, discovery, resolved_attention_dtype)
+    generated = update_config(
+        template, discovery, resolved_attention_dtype,
+        include_proj=not args.no_proj_entry,
+    )
+
+    # Defensive check: every generated regional name must exist in the same
+    # prepared graph it was discovered from.
+    prepared_names = {node.name for node in prepared.graph.nodes}
+    missed = [
+        name
+        for entry in generated["regional_configs"]
+        for name in (entry.get("module_names") or [])
+        if name not in prepared_names
+    ]
+    if missed:
+        raise SystemExit(
+            "ERROR: QAT regional module names miss the prepared training "
+            f"graph: {missed}. Regenerate with matching --batch-size/"
+            "--dynamic-batch (node numbering shifts under dynamic shapes)."
+        )
+    print("QAT config names verified against prepared training graph")
     if args.check:
-        if generated != template:
+        if not _config_matches_template(generated, template):
             raise SystemExit(
-                "ERROR: QAT regional module names do not match the current export_for_training graph"
+                "ERROR: QAT regional module names do not match the current prepared training graph"
             )
         print("QAT config FX node structure: PASS")
     else:
@@ -380,9 +612,9 @@ def main() -> None:
         print(f"attention {position}: {region['owner']}")
         print(
             "  "
-            f"qkv={region['qkv_linear']} scale={region['scale_mul']} "
-            f"matmul={region['first_matmul']} softmax={region['softmax']} "
-            f"matmul_out={region['second_matmul']}"
+            f"qkv={region['qkv_linear']} proj={region['proj_linear']} "
+            f"scale={region['scale_mul']} matmul={region['first_matmul']} "
+            f"softmax={region['softmax']} matmul_out={region['second_matmul']}"
         )
     if not discovery["attention"]:
         print("attention regions: 0 (global QAT config only)")

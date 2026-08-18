@@ -9,17 +9,22 @@
   [pretrained 训练结构复现](plans/pretrained_training_structure_plan.md)、
   [检测专项](plans/detection_accuracy_recovery_plan.md)、
   [识别专项](plans/recognition_accuracy_recovery_plan.md)、
-  [KD 蒸馏支持](plans/distillation_support_plan.md)。
+  [KD 蒸馏支持](plans/distillation_support_plan.md)、
+  [LSQ 可学习步长量化](plans/lsq_qat_support_plan.md)、
+  [大规模数据集扩展](plans/large_scale_dataset_expansion.md)。
+- 已收尾计划：[训练非重参化/推理重参化方案](plans/train_noreparam_infer_reparam.md)（已落地）、
+  [重参化保留 BN 方案](plans/rep_keep_bn_plan.md)（2026-08-18 收尾，结论见问题 3/8/16）。
 - 当前实验记录：[精度验证结果](records/model_accuracy_validation_results.md)、
   [v5 mobile det 训练](records/icdar2015_ppocrv5_mobile_det_qat_training.md)、
-  [v5 mobile rec smoke](records/ppocrv5_mobile_rec_qat_smoke.md)、
-  [v5 mobile rec 训练](records/icdar2015_ppocrv5_mobile_rec_qat_training.md)（含 Exp2-Exp4）、
-  [v5/v4 兼容性](records/ppocrv5_v4_compatibility.md)。
+  [v5 mobile rec 训练](records/icdar2015_ppocrv5_mobile_rec_qat_training.md)（含 Exp2-Exp14b 与 §39 qspec 节点名问题、§40.1/§40.2 上板/ORT 对齐结论与逐层对比）、
+  [v5/v4 兼容性](records/ppocrv5_v4_compatibility.md)、
+  [重参化问题与量化域折叠](records/reparameterization_qat_issues.md)（问题 9-16，含 Paddle 官方 BN/QAT、YOLOv6 QARepVGG/v0.2.0 QAT 对照、LSQ 起点确认、RepOpt/校准原理与 LAB 折叠评审）。
 - 操作指南：[训练图 ONNX 导出](guides/training_onnx_export.md)、
   [初始化 observer 导出](guides/initialized_observer_quantonnx_export.md)、
   [KD 蒸馏训练](guides/kd_training.md)、
   [Pulsar2/AXModel 交付](guides/pulsar2_axmodel_handoff.md)。
 - 历史归档：[早期 v6/ICDAR 基线](archive/baselines/)、
+  [早期 CTC-only smoke](archive/smoke/ppocrv5_mobile_rec_qat_smoke.md)、
   [Ultralytics 调研与 QAT.YOLO 迁移](archive/migration/)。归档指标只用于追溯，不能代替当前模型验收。
 
 2026-08-05 起，四个优先模型必须先完成 pretrained 训练结构复现，不再用单输出部署图代替完整
@@ -51,6 +56,11 @@ PaddleOCR2Pytorch upstream:
 QAT.axera reference:
   repository: https://github.com/AXERA-TECH/QAT.axera
   commit:     4603b160bad6b212551721ec3cd3b75895b17de3
+
+QAT.Ultralytics.YOLOv5 reference（LSQ quantizer 参考）:
+  repository: https://github.com/AXERA-TECH/QAT.Ultralytics.YOLOv5
+  commit:     325fef79（2026-08-10 拷贝至 references/，AGPL-3.0）
+  source:     utils/ax_quantizer_lsq.py + utils/ax_quantizer_utils.py
 ```
 
 工作区使用 partial clone 和 sparse checkout，仅拉取模型、配置、转换器和必要工具，避免下载
@@ -170,7 +180,7 @@ PT2E/QAT.axera 稳定捕获。
 | PP-OCRv6 small rec CTC | CTC 已对齐 | 已转换 | ICDAR 50 epoch，best acc 0.73375 | checkpoint 已导出 | checker/ORT 通过 | 待编译 |
 | PP-OCRv6 tiny/medium | 未开始 | 未开始 | 未开始 | 未开始 | 未开始 | 未开始 |
 | PP-OCRv5 mobile det | 已对齐 | 已严格转换 | ICDAR 50 epoch，best hmean 0.16527 | checkpoint 已导出 | checker/ORT 500 图通过，hmean 0.14832 | 待编译 |
-| PP-OCRv5 mobile rec CTC | 已对齐，完整指标已重测 | 已严格转换 | 原生 SiLU 50 epoch 已完成（精度恢复未通过）；U16/S16 Exp1-4 已执行（含 KD 的 Exp4） | U16/S16 全局 + Attention S16 合同；epoch-2 门禁均未通过 | Exp2/Exp3 debug QuantONNX 供结构检查，Pulsar2 配置已生成 | 待编译 |
+| PP-OCRv5 mobile rec CTC | 已对齐，完整指标已重测 | 已严格转换 | 原生 SiLU 50 epoch 完成（精度恢复未通过）；U16/S16 Exp1-12b（best 0.6172）；U8/S8 Exp13-16（best exp15 0.5965 / exp16 0.5927） | U8/S8 全局 + Attention S8 + 下采样链 S16（exp15/16 合同） | exp16 QuantONNX checker/ORT 通过，全量 ORT acc 0.58546 | exp16 已远端编译，上板 acc 0.58449（与 ORT 差 0.001）；exp13 上板 0.5392 已定位为下采样 U8 分辨率不足并修复 |
 | PP-OCRv5 server det/rec | 随机权重构图通过 | 未转换 | 未开始 | 随机权重 smoke 通过 | QDQ 结构通过 | 未开始 |
 | PP-OCRv4 mobile/server | 随机权重构图通过 | 未转换 | 未开始 | 随机权重 smoke 通过 | QDQ 结构通过 | 未开始 |
 

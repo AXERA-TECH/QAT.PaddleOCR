@@ -34,6 +34,7 @@
 | --- | --- |
 | [PP-OCRv5/v6 架构与优化](architecture/ppocrv5v6_architecture_optimizations.md) | 对照 Paddle 官方结构，说明 v5/v6 的 backbone、neck、head、训练分支和部署优化 |
 | [数据增强与多尺度训练](architecture/data_augmentation.md) | PytorchOCR 增强迁移来源、det/rec pipeline、profile 开关和 QAT 默认合同 |
+| [QARepVGG 量化参考](architecture/qarepvgg_quantization_reference.md) | QARepVGG 多分支重参化训练结构、融合方式、插 BN 策略与量化友好设计 |
 | [Paddle/Axera 量化信息](references/quant_info.md) | 汇总 Paddle QAT、ONNX QDQ、Axera dtype 和量化域约束 |
 
 ## QAT 计划
@@ -45,6 +46,10 @@
 | [检测精度恢复](axera_qat/plans/detection_accuracy_recovery_plan.md) | DB 检测模型的数据处理、输出图、损失和 metric 专项计划 |
 | [识别精度恢复](axera_qat/plans/recognition_accuracy_recovery_plan.md) | CTC/MultiHead 识别模型的预处理、解码和精度专项计划 |
 | [KD 蒸馏支持](axera_qat/plans/distillation_support_plan.md) | v5/v6 浮点与 QAT 蒸馏：多层 KD、Teacher 合同、实验顺序 |
+| [LSQ 可学习步长量化](axera_qat/plans/lsq_qat_support_plan.md) | LSQ 支持计划：S0-S5 状态、统计初始化、Exp5-16 真实数据对照 |
+| [训练非重参化/推理重参化 QAT](axera_qat/plans/train_noreparam_infer_reparam.md) | 多分支训练 + 部署折叠：量化域折叠（唯一可行方式）、exp10a/exp12b 验证落地、skill `ppocr-quantized-domain-fold` |
+| [重参化保留 BN 方案](axera_qat/plans/rep_keep_bn_plan.md) | keep-BN 方案设计与 exp8 系列过程记录；2026-08-18 已收尾（结论与 LAB 折叠评审见 `reparameterization_qat_issues.md` 问题 3/8/16） |
+| [大规模数据集扩展](axera_qat/plans/large_scale_dataset_expansion.md) | ICDR2015 方案验证完成后的大数据选型、存储评估、tmux 下载脚本（`tools/data/`）与转换计划 |
 
 ## 操作指南
 
@@ -61,9 +66,9 @@
 | --- | --- |
 | [精度验证实施记录](axera_qat/records/model_accuracy_validation_results.md) | 总计划各阶段的真实命令、框架对齐指标和结论 |
 | [v5 mobile det QAT 训练](axera_qat/records/icdar2015_ppocrv5_mobile_det_qat_training.md) | ICDAR2015 检测训练参数、checkpoint 和精度记录 |
-| [v5 mobile rec QAT smoke](axera_qat/records/ppocrv5_mobile_rec_qat_smoke.md) | 识别模型浮点转换、PT2E 和 QuantONNX 结构 smoke 记录 |
-| [v5 mobile rec QAT 训练](axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md) | 识别 QAT 多轮实验、Exp2/Exp3 门禁、Exp4 KD、QuantONNX 审计、SGD 和动态训练高度合同 |
+| [v5 mobile rec QAT 训练](axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md) | 识别 QAT 多轮实验、Exp2/Exp3 门禁、Exp4 KD、U16/S16 LSQ Exp5-12b、U8/S8 Exp13-14b（含折叠 finetune）、§40.2 exp13 逐层对比（per-layer dump 定位：attention S8 正确、CNN 下采样 U8 分辨率不足）、QuantONNX 审计、SGD 和动态训练高度合同 |
 | [v5/v4 QAT 兼容性](axera_qat/records/ppocrv5_v4_compatibility.md) | mobile/server 与 v4/v5 模型结构、Conv-BN 和量化兼容性记录 |
+| [重参化模型 QAT 问题记录](axera_qat/records/reparameterization_qat_issues.md) | 重参化+keep-BN 链路的问题清单、根因、修复尝试与建议顺序 |
 
 ## 历史归档
 
@@ -74,6 +79,7 @@
 | [早期检测 QAT 训练](axera_qat/archive/baselines/icdar2015_det_qat_training.md) | PP-OCRv6 检测早期训练与工程验证基线 |
 | [早期识别 QAT 训练](axera_qat/archive/baselines/icdar2015_rec_qat_training.md) | PP-OCRv6 识别早期训练基线 |
 | [早期 QAT metric 验证](axera_qat/archive/baselines/icdar2015_qat_metric_validation.md) | 初期 det/rec metric 实现和验证记录 |
+| [v5 mobile rec QAT smoke](axera_qat/archive/smoke/ppocrv5_mobile_rec_qat_smoke.md) | 早期 CTC-only smoke（构图修复、历史 U8/S16 与 S8 Attention smoke、Pulsar2 配置生成）；已被现行 U8/S8 路线与主训练记录替代，仅追溯用 |
 | [Ultralytics 复用评估](axera_qat/archive/migration/ultralytics_reuse_assessment.md) | 路线选择前的能力、技巧和风险调研 |
 | [QAT.YOLO 方法迁移](axera_qat/archive/migration/qat_yolo_migration.md) | 已完成迁移过程和验证来源 |
 | [项目结构迁移计划](archive/project/project_structure_reorganization_plan.md) | route2 合并到当前仓库的历史计划与决策 |

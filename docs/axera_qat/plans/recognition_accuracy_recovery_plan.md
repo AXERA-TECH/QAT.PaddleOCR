@@ -205,11 +205,14 @@ logits 可存在对 Softmax 不敏感的整体平移，因此必须同时报告 
 
 #### E1. observer/fake-quant 显式状态
 
-- [ ] stage 工具加入 eager/exported float；
-- [ ] 显式控制 observer off、fake quant off/on；
-- [ ] 报告所有模块状态和 observer qparams；
-- [ ] 每个阶段从未污染的同一 checkpoint 构造；
-- [ ] 状态在异常退出后可恢复。
+- [x] stage 工具加入 eager/exported float（`tools/compare_pt2e_float_preservation.py`）；
+- [x] 显式控制 observer off、fake quant off/on（`disable_observer`/`disable_fake_quant`）；
+- [x] 报告所有模块状态和 observer qparams（含 trainer `_any_observer_enabled` 状态记忆）；
+- [x] 每个阶段从未污染的同一 checkpoint 构造（同一浮点权重分别 prepare）；
+- [x] 状态在异常退出后可恢复（trainer evaluate finally 对称恢复 + 单元测试）。
+
+（2026-08-18 补记：E1 已由 `compare_pt2e_float_preservation.py` 与 trainer 验证恢复逻辑落地，
+完整结果见训练记录 §17-20 与 `records/model_accuracy_validation_results.md` P4。）
 
 验证：状态单元测试覆盖 off/on/恢复；fake-quant-off 不产生有效量化扰动。
 

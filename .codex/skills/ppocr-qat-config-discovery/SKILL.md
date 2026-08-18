@@ -72,6 +72,36 @@ After a check passes, start from floating-point weights and run QAT smoke. Do no
 checkpoint across graph or qspec changes. Inspect the exported Q/DQ dtype and boundaries, then
 generate Pulsar2 configuration from that exact QuantONNX.
 
+Checked-in QAT JSON may be a union over several graph forms (training graph + folded graph + smoke
+graph; see training record §39). `--check` is union-aware: each entry regenerated from the current
+graph must be subsumed by a template entry of the same `module_type` (equal `module_config` and its
+names contained in the template's name list). Template entries with no generated counterpart (e.g.
+S16 downsampling entries, or names of other graph forms) are allowed — verify those by annotation
+inspection of the target prepared graph (e.g. the `dump_blocks6_nodes.py` pattern in
+`docs/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md` §43.1).
+
+For U8/S8 configs the output-projection entry was removed after validation (proj is FC-like; see
+training record §34.4), so pass `--no-proj-entry` when checking them — otherwise the regenerated
+config contains a proj entry the template lacks.
+
+## Node numbering pitfall (2026-08-13)
+
+QAT regional `module_names` are matched against the graph produced by
+`prepare_qat_pt2e`, whose node numbering depends on the training contract:
+
+- dynamic batch / batch-aligned gtc targets (rec `pretrained_train`, batch > 1);
+- the model wrapper passed to prepare (export the ORIGINAL model, not an
+  already-exported GraphModule — nested export shifts numbers);
+- batch size and `max_batch`.
+
+Discovery therefore prepares the model with the same dynamic-shape contract as
+train.py and remaps discovered roles onto the prepared graph. Symptom when this
+is missed: a regional entry silently does not hit (e.g. scale Mul falls back to
+global U16 input) and QuantONNX gains requantize Identity nodes
+(`select -> Mul`, `mul_58` vs `mul_60/61`). Verify with
+`--batch-size`/`--dynamic-batch` matching training, then re-check the exported
+Identity count (expected: only the SE avg_pool u16->u16 boundary).
+
 ## Acceptance
 
 - Every requested Attention owner is complete and topologically validated.
