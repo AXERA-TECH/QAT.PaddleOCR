@@ -502,16 +502,22 @@ class FullRecTrainingWrapper(nn.Module):
         return self
 
 
-def reparameterize_for_deploy(model, insert_identity_bn=False):
+def reparameterize_for_deploy(model, insert_identity_bn=False, keep_bn=False):
     model.eval()
     for module_name in ("backbone", "neck"):
         module = getattr(model, module_name, None)
         rep = getattr(module, "rep", None)
         if callable(rep):
             try:
-                rep(insert_identity_bn=insert_identity_bn)
+                rep(insert_identity_bn=insert_identity_bn, keep_bn=keep_bn)
             except TypeError:
-                rep()
+                try:
+                    rep(keep_bn=keep_bn)
+                except TypeError:
+                    try:
+                        rep(insert_identity_bn=insert_identity_bn)
+                    except TypeError:
+                        rep()
     return model
 
 
@@ -651,7 +657,28 @@ def prepare_qat_model(
         dynamic_shapes=dynamic_shapes,
     ).module()
     float_node_count = len(list(exported.graph.nodes))
-    prepared = prepare_qat_pt2e(exported, quantizer)
+    try:
+        prepared = prepare_qat_pt2e(exported, quantizer)
+    except KeyError as error:
+        # torch 2.6 QAT conv-bn fusion limitation: after _fuse_conv_bn_qat
+        # replaces a BN node, consumer annotations keep stale
+        # input_qspec_map keys (only qspec values are remapped), so prepare
+        # fails with "KeyError: (batch_norm_N, conv_N)" when a BN output
+        # directly feeds an annotated conv (e.g. v6 keep_bn post-BN ->
+        # expand conv, incl. annotate_bias DerivedQuantizationSpec edges).
+        # Re-export a fresh graph (the failed prepare may have mutated
+        # `exported`) and run the annotate/fuse/prepare flow with a key
+        # repair step in between.
+        exported = torch.export.export_for_training(
+            model,
+            example_inputs,
+            dynamic_shapes=dynamic_shapes,
+        ).module()
+        prepared = _prepare_qat_pt2e_with_key_repair(exported, quantizer)
+        prepared._used_bn_key_repair = True
+        if error is not None:
+            # keep a trace: the original KeyError is the documented trigger
+            prepared.meta["_bn_key_repair_trigger"] = str(error)
     if freeze_kept_bn_stats:
         freeze_kept_bn_running_stats(prepared)
     move_exported_model_to_train(prepared)
@@ -660,6 +687,83 @@ def prepare_qat_model(
         # the momentum pin afterwards so the frozen nodes persist.
         freeze_kept_bn_running_stats(prepared)
     return prepared, float_node_count
+
+
+def _repair_input_qspec_keys_after_fusion(model):
+    """Rebuild stale input_qspec_map keys after QAT conv-bn fusion.
+
+    torch's _update_special_qspecs_after_replacement only remaps the qspec
+    VALUES on consumer nodes; keys that referenced a fused BN node stay stale
+    and break prepare's obs map (KeyError). For every annotated node whose
+    input_qspec_map contains a key that is not one of its actual Node args
+    (flattening list/tuple args, e.g. aten.cat([a, b], dim)), re-bind the
+    stale key positionally to the node's real argument (input / weight /
+    bias order is the torch convention). Returns the number of repaired
+    annotations.
+    """
+    def node_args(node):
+        flattened = []
+        for arg in node.args:
+            if isinstance(arg, torch.fx.Node):
+                flattened.append(arg)
+            elif isinstance(arg, (list, tuple)):
+                flattened.extend(
+                    item for item in arg if isinstance(item, torch.fx.Node)
+                )
+        return flattened
+
+    repaired = 0
+    for node in model.graph.nodes:
+        annotation = node.meta.get("quantization_annotation", None)
+        if annotation is None or not annotation.input_qspec_map:
+            continue
+        actual_args = node_args(node)
+        old_items = list(annotation.input_qspec_map.items())
+        if all(key in actual_args for key, _ in old_items):
+            continue
+        new_map = {}
+        for index, (old_key, qspec) in enumerate(old_items):
+            if old_key in actual_args:
+                new_map[old_key] = qspec
+            elif index < len(actual_args):
+                new_map[actual_args[index]] = qspec
+            # else: cannot place -> drop (annotation re-validated by prepare)
+        annotation.input_qspec_map = new_map
+        repaired += 1
+    return repaired
+
+
+def _prepare_qat_pt2e_with_key_repair(model, quantizer):
+    """prepare_qat_pt2e with an input_qspec_map key repair after fusion.
+
+    Mirrors torch.ao.quantization.quantize_pt2e.prepare_qat_pt2e (torch 2.6)
+    step by step, inserting _repair_input_qspec_keys_after_fusion between
+    _fuse_conv_bn_qat and prepare. Only used as the KeyError fallback in
+    prepare_qat_model; the standard path stays untouched.
+    """
+    from torch.ao.quantization.quantize_pt2e import (
+        _disallow_eval_train,
+        _fuse_conv_bn_qat,
+        _get_node_name_to_scope,
+        prepare,
+    )
+
+    original_graph_meta = model.meta
+    node_name_to_scope = _get_node_name_to_scope(model)
+    model = quantizer.transform_for_annotation(model)
+    quantizer.annotate(model)
+    quantizer.validate(model)
+    _fuse_conv_bn_qat(model)
+    _repair_input_qspec_keys_after_fusion(model)
+    model = prepare(
+        model,
+        node_name_to_scope,
+        is_qat=True,
+        obs_or_fq_callback=quantizer.prepare_obs_or_fq_callback,
+    )
+    model.meta.update(original_graph_meta)
+    model = _disallow_eval_train(model)
+    return model
 
 
 def freeze_kept_bn_running_stats(prepared):

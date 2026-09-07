@@ -207,6 +207,7 @@ class DetectionDataset(Dataset):
         map_generator=None,
         return_polygons=False,
         augmentation="none",
+        det_preprocess="paddle",
     ):
         self.label_file = Path(label_file).resolve()
         self.data_dir = Path(data_dir).resolve()
@@ -222,6 +223,11 @@ class DetectionDataset(Dataset):
             raise ValueError("Detection padding value must be in [0, 255].")
         self.map_generator = map_generator or DBMapGenerator()
         self.return_polygons = bool(return_polygons)
+        if det_preprocess not in ("letterbox", "paddle"):
+            raise ValueError(
+                "Detection preprocessing must be 'letterbox' or 'paddle'."
+            )
+        self.det_preprocess = det_preprocess
         if augmentation not in ("none", "paddle"):
             raise ValueError("Detection augmentation must be 'none' or 'paddle'.")
         self.augmentation = augmentation
@@ -265,6 +271,22 @@ class DetectionDataset(Dataset):
         for polygon in polygons:
             polygon[:, 0] = polygon[:, 0] * x_scale + left
             polygon[:, 1] = polygon[:, 1] * y_scale + top
+        return image
+
+    def _paddle_resize(self, image, polygons):
+        """Resize to the configured shape using PaddleOCR's fixed-shape path."""
+        _, target_height, target_width = self.image_shape
+        source_height, source_width = image.shape[:2]
+        image = cv2.resize(
+            image,
+            (target_width, target_height),
+            interpolation=cv2.INTER_LINEAR,
+        )
+        x_scale = target_width / source_width
+        y_scale = target_height / source_height
+        for polygon in polygons:
+            polygon[:, 0] *= x_scale
+            polygon[:, 1] *= y_scale
         return image
 
     def __len__(self):
@@ -311,7 +333,10 @@ class DetectionDataset(Dataset):
         ignore_tags = sample.ignore_tags
 
         _, target_height, target_width = self.image_shape
-        image = self._letterbox(image, polygons)
+        if self.det_preprocess == "letterbox":
+            image = self._letterbox(image, polygons)
+        else:
+            image = self._paddle_resize(image, polygons)
         maps = self.map_generator(
             (target_height, target_width),
             polygons,

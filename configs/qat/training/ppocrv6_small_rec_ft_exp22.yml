@@ -1,0 +1,22 @@
+name: ppocrv6-small-rec-ft-exp22
+task: rec
+model_name: PP-OCRv6_small_rec
+qat: false
+training:
+  epochs: 10
+  batch_size: 64
+  workers: 8
+  learning_rate: 0.00005
+  weight_decay: 0.00003
+  image_shape: [3, 48, 320]
+  augmentation: none
+  multi_scale_training: false
+  amp: false
+  grad_clip_norm: 5.0
+  reparameterize: false
+  rec_graph: pretrained_train
+  warmup_epochs: 1
+  lr_final_factor: 0.1
+  save_every: 1
+  save_every_steps: 5000
+  seed: 20260825

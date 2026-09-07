@@ -47,6 +47,7 @@ from pytorchocr.quantization import (
     initialize_weight_observers,
     load_axera_quantizer,
     prepare_qat_model,
+    transfer_activation_qparams_by_site,
 )
 from pytorchocr.training import (
     Trainer,
@@ -58,6 +59,7 @@ from pytorchocr.training import (
     load_ocr_config,
     load_training_profile,
     profile_value,
+    training_log,
     update_best_validation,
 )
 
@@ -94,11 +96,36 @@ def parse_args():
     )
     parser.add_argument("--smoke-steps", type=int, default=10)
     parser.add_argument("--finetune-epochs", type=int, default=None)
+    parser.add_argument(
+        "--activation-qparam-transfer",
+        choices=("none", "semantic"),
+        default="none",
+        help=(
+            "Optional activation qparam warm-start from the source prepared "
+            "graph. Default 'none' re-observes the folded graph. 'semantic' "
+            "copies only scale/zero_point for matching FX producer sites."
+        ),
+    )
+    parser.add_argument(
+        "--activation-qparam-include-static",
+        action="store_true",
+        help=(
+            "Also consider get_attr/static-constant observer sites during "
+            "semantic activation qparam transfer. Disabled by default."
+        ),
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+    if args.output_dir:
+        with training_log(args.output_dir):
+            return _main(args)
+    return _main(args)
+
+
+def _main(args):
     config = load_ocr_config(args.model_config)
     profile = load_training_profile(args.training_profile)
     if profile is not None:
@@ -195,6 +222,7 @@ def main():
         with torch.no_grad():
             prepared(images, targets["gtc_targets"])
         prepared.apply(disable_observer)
+    _maybe_transfer_activation_qparams(prepared, args)
     print("prepared, float nodes:", float_nodes)
 
     # 6) Finetune with smoke gate
@@ -319,6 +347,7 @@ def _quantized_domain_eval(args, config, model, image_shape, batch_size, workers
         prepared(images, gtc)
     prepared.apply(enable_fake_quant)
     prepared.apply(disable_observer)
+    _maybe_transfer_activation_qparams(prepared, args)
 
     move_exported_model_to_eval(prepared)
     converted = convert_prepared_model(prepared)
@@ -344,6 +373,30 @@ def _quantized_domain_eval(args, config, model, image_shape, batch_size, workers
         "quantized-domain folded eval (finetune-start accuracy):",
         json.dumps(metric.compute(), sort_keys=True),
     )
+
+
+def _maybe_transfer_activation_qparams(prepared, args):
+    if args.activation_qparam_transfer == "none":
+        return None
+    from pytorchocr.diagnostics import (
+        build_prepared_qat_checkpoint,
+        load_qat_checkpoint,
+    )
+
+    source_checkpoint, source_metadata = load_qat_checkpoint(args.source_checkpoint)
+    source_prepared, _ = build_prepared_qat_checkpoint(source_metadata)
+    new_state, report = transfer_activation_qparams_by_site(
+        source_prepared,
+        source_checkpoint["model"],
+        prepared,
+        include_get_attr=bool(args.activation_qparam_include_static),
+    )
+    prepared.load_state_dict(new_state, strict=True)
+    print(
+        "activation qparam transfer:",
+        json.dumps(report.as_dict(), sort_keys=True),
+    )
+    return report
 
 
 if __name__ == "__main__":

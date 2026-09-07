@@ -62,6 +62,14 @@ def parse_args():
         help="CHW shape used to resolve a dynamic-spatial ONNX input.",
     )
     parser.add_argument(
+        "--det-preprocess",
+        choices=["letterbox", "paddle"],
+        help=(
+            "Detection resize preprocessing; defaults to checkpoint metadata "
+            "when --pt is given, otherwise PaddleOCR fixed-shape resize."
+        ),
+    )
+    parser.add_argument(
         "--onnx",
         help="ONNX model path (QuantONNX or Float ONNX).",
     )
@@ -171,6 +179,10 @@ def _build_loader(args, config, image_shape, full_rec, sample_count):
         args.data_dir,
         return_polygons=args.task == "det",
         rec_multi_head=full_rec,
+        det_preprocess=(
+            args.det_preprocess
+            or ("paddle" if args.task == "det" else "letterbox")
+        ),
     )
     if sample_count is not None:
         dataset = Subset(dataset, range(sample_count))
@@ -327,7 +339,11 @@ def main(args):
         requested_shape = tuple(args.image_shape or configured_shape)
         input_shape = resolve_onnx_input_shape(session, requested_shape)
     if args.pt:
-        pt_model, _ = load_pt2e(args, config)
+        pt_model, pt_metadata = load_pt2e(args, config)
+        if args.det_preprocess is None and args.task == "det":
+            # Preserve the preprocessing contract of checkpoints created
+            # before det_preprocess was stored in metadata.
+            args.det_preprocess = pt_metadata.get("det_preprocess", "letterbox")
 
     result = {}
     if args.onnx:

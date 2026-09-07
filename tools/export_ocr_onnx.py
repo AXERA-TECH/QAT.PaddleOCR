@@ -10,6 +10,11 @@ import numpy as np
 import onnx
 import onnxruntime as ort
 import torch
+from torch.ao.quantization import (
+    disable_observer,
+    enable_observer,
+    move_exported_model_to_eval,
+)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -37,6 +42,7 @@ from pytorchocr.diagnostics import (
     random_stage_comparison,
 )
 from pytorchocr.training import (
+    build_dataset,
     build_task_model,
     load_ocr_config,
     relocate_project_path,
@@ -260,6 +266,32 @@ def add_checkpoint_arguments(parser):
         default=None,
         help="Override the batch policy recorded in checkpoint metadata.",
     )
+    parser.add_argument(
+        "--recalibrate",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Re-run activation observers on a calibration set after loading "
+            "the checkpoint, replacing the training-stream statistics before "
+            "convert/export. Off by default (keeps the checkpoint's observer "
+            "stats). Measured gain for v6 rec: converted acc +0.9~1.3pt "
+            "(records §7)."
+        ),
+    )
+    parser.add_argument(
+        "--calibration-label-file",
+        default=None,
+        help="Calibration label file for --recalibrate (default: the "
+        "checkpoint's training label_file).",
+    )
+    parser.add_argument(
+        "--calibration-data-dir",
+        default=None,
+        help="Data directory for --calibration-label-file (default: the "
+        "checkpoint's data_dir).",
+    )
+    parser.add_argument("--calibration-samples", type=int, default=512)
+    parser.add_argument("--calibration-batch-size", type=int, default=8)
 
 
 def build_parser():
@@ -1084,6 +1116,59 @@ def value_from_args_or_metadata(args, metadata, name):
     return value
 
 
+def _recalibrate(
+    prepared,
+    task,
+    model_config,
+    config,
+    image_shape,
+    label_file,
+    data_dir,
+    samples,
+    batch_size,
+    full_rec_graph,
+    max_text_length,
+):
+    """Re-run activation observers on a calibration set (training distribution).
+
+    Replaces the training-stream observer statistics accumulated in the
+    checkpoint with fresh statistics from the final weights, then freezes the
+    observers. Called only with ``--recalibrate`` (default: off).
+    """
+    from torch.utils.data import DataLoader, Subset
+
+    dataset = build_dataset(
+        task,
+        model_config,
+        config,
+        tuple(image_shape),
+        label_file,
+        data_dir,
+        rec_multi_head=bool(task == "rec" and full_rec_graph),
+    )
+    sample_count = min(samples, len(dataset))
+    loader = DataLoader(
+        Subset(dataset, range(sample_count)),
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+    )
+    prepared.apply(enable_observer)
+    move_exported_model_to_eval(prepared)
+    with torch.no_grad():
+        for images, targets in loader:
+            if full_rec_graph and task == "rec":
+                gtc = targets["gtc_targets"][:, :max_text_length]
+                out = prepared(images, gtc)
+            else:
+                out = prepared(images)
+            logits = outputs_as_tuple(out)[0]
+            if not torch.isfinite(logits).all():
+                raise RuntimeError("Re-calibration produced non-finite output.")
+    prepared.apply(disable_observer)
+    return sample_count
+
+
 def run_checkpoint_export(args):
     torch.manual_seed(20260728)
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
@@ -1152,9 +1237,33 @@ def run_checkpoint_export(args):
                 dtype=torch.int64,
             ),
         )
+    recalibration_samples = None
+    if args.recalibrate:
+        calib_label_file = args.calibration_label_file or metadata.get("label_file")
+        calib_data_dir = args.calibration_data_dir or metadata.get("data_dir")
+        if not calib_label_file or not calib_data_dir:
+            raise ValueError(
+                "--recalibrate needs a calibration label file; the checkpoint "
+                "metadata has none — pass --calibration-label-file/"
+                "--calibration-data-dir."
+            )
+        recalibration_samples = _recalibrate(
+            prepared,
+            task,
+            model_config,
+            load_ocr_config(model_config),
+            image_shape,
+            calib_label_file,
+            calib_data_dir,
+            args.calibration_samples,
+            args.calibration_batch_size,
+            full_rec_graph,
+            max_text_length,
+        )
     prepared_outputs = prepared_random_stage_outputs(prepared, comparison_inputs)
     converted = convert_prepared_model(prepared)
     del prepared
+    gc.collect()
     gc.collect()
     dynamic_heights = list(metadata.get("dynamic_heights") or [])
 
@@ -1225,6 +1334,8 @@ def run_checkpoint_export(args):
         "prepared_dynamic_heights": dynamic_heights,
         "quantonnx_static_image_shape": list(image_shape),
         "onnx_optimized": args.onnx_optimize,
+        "recalibrated": bool(args.recalibrate),
+        "recalibration_samples": recalibration_samples,
         "float_nodes": float_node_count,
         "prepared_nodes": prepared_node_count,
         "converted_nodes": len(list(converted.graph.nodes)),

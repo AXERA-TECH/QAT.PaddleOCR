@@ -24,8 +24,9 @@ profile, checkpoint, and exported graph as one versioned contract.
     PyTorch export environment changes. Do not resume a prepared checkpoint across graph changes.
  5. Use a QAT training profile. Let explicit CLI values override the profile, and let the profile
     override floating-point Paddle YAML training defaults.
- 6. Keep random data augmentation disabled for the baseline. For detection, use deterministic centered
-    letterbox preprocessing and transform polygons with the same scale and offset.
+ 6. Keep random data augmentation disabled for the baseline. For detection, use PaddleOCR fixed-shape
+    resize preprocessing and transform polygons with the same horizontal/vertical scales. The centered
+    letterbox path is an explicit experimental option and must transform polygons with its scale and offset.
 
 ## Train
 

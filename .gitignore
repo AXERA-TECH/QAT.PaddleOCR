@@ -155,4 +155,11 @@ exports/
 references/
 runs/
 weights/
-tools.md
+
+# Internal development notes and generated experiment reports
+docs/references/development/
+artifacts/
+
+# Local agent state
+.claude/
+.agents/

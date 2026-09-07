@@ -51,6 +51,15 @@ def parse_args() -> argparse.Namespace:
         default=True,
     )
     parser.add_argument(
+        "--keep-bn",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Keep the native post-sum BN of v6 RepDWConv during "
+            "reparameterization (matches train.py --keep-bn QAT contract)."
+        ),
+    )
+    parser.add_argument(
         "--rec-graph",
         choices=("deploy", "pretrained_train"),
         default="deploy",
@@ -84,6 +93,19 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--check", action="store_true")
+    parser.add_argument(
+        "--strict-names",
+        action="store_true",
+        help=(
+            "With --check, additionally require every module name of the "
+            "template (not only the regenerated entries) to exist in the "
+            "current prepared graph. Catches checked-in configs whose "
+            "hand-written entries (e.g. v6 gtc branch) were named against a "
+            "different graph contract than the one being prepared. Default "
+            "off: templates may legitimately be unions over several graph "
+            "forms (training + folded + smoke)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -363,9 +385,7 @@ def update_config(
              "module_type": "matmul",
              "module_config": {
                  "is_symmetric": True,
-                 "output_is_symmetric": False,
                  "input": signed,
-                 "output": global_activation,
              },
          },
         ]
@@ -389,6 +409,7 @@ def _config_matches_template(generated: dict[str, Any], template: dict[str, Any]
     """
     if generated.get("global_config") != template.get("global_config"):
         return False
+    global_activation, _ = validate_global_qspec(template.get("global_config", {}))
     by_type: dict[str, list[dict[str, Any]]] = {}
     for entry in template.get("regional_configs", []):
         by_type.setdefault(entry.get("module_type"), []).append(entry)
@@ -397,12 +418,51 @@ def _config_matches_template(generated: dict[str, Any], template: dict[str, Any]
         generated_names = set(entry.get("module_names") or [])
         candidates = by_type.get(module_type, [])
         if not any(
-            entry.get("module_config") == candidate.get("module_config")
+            _module_config_equivalent(
+                entry.get("module_config"),
+                candidate.get("module_config"),
+                global_activation,
+            )
             and generated_names <= set(candidate.get("module_names") or [])
             for candidate in candidates
         ):
             return False
     return True
+
+
+def _module_config_equivalent(
+    generated: dict[str, Any],
+    template: dict[str, Any],
+    global_activation: dict[str, Any],
+) -> bool:
+    """Compare regional module_configs, treating an omitted ``output`` as
+    equivalent to an explicit global-activation output.
+
+    The softmax . V MatMul entry intentionally omits ``output`` so the result
+    domain follows the global activation (U8). Older configs (e.g. the v5-rec
+    attention S8 file) spell the same choice out explicitly as
+    ``output == global_activation`` with ``output_is_symmetric: False``.
+    Normalize both sides by stripping such redundant explicit output fields
+    before comparing so --check accepts both forms.
+    """
+    if generated == template:
+        return True
+
+    def normalized(cfg: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(cfg, dict):
+            return cfg
+        norm = dict(cfg)
+        output = norm.pop("output", None)
+        symmetric = norm.pop("output_is_symmetric", None)
+        if output == global_activation and symmetric is False:
+            return norm
+        if output is not None:
+            norm["output"] = output
+        if symmetric is not None:
+            norm["output_is_symmetric"] = symmetric
+        return norm
+
+    return normalized(generated) == normalized(template)
 
 
 def main() -> None:
@@ -434,6 +494,7 @@ def main() -> None:
         reparameterize=args.reparameterize,
         det_graph="inference",
         rec_graph=args.rec_graph,
+        keep_bn=args.keep_bn,
     )
     images = torch.zeros([args.batch_size, *args.image_shape], dtype=torch.float32)
     example_inputs: tuple[Any, ...] = (images,)
@@ -583,6 +644,26 @@ def main() -> None:
         )
     print("QAT config names verified against prepared training graph")
     if args.check:
+        if args.strict_names:
+            missed_entries = [
+                (entry.get("module_type"), entry.get("module_names"))
+                for entry in template.get("regional_configs", [])
+                if not any(
+                    name in prepared_names
+                    for name in (entry.get("module_names") or [])
+                )
+            ]
+            if missed_entries:
+                raise SystemExit(
+                    "ERROR(--strict-names): template regional entries with no "
+                    f"name in the current prepared graph: {missed_entries}. "
+                    "The checked-in config was generated for another graph "
+                    "contract (e.g. static batch 1 vs dynamic batch 64 shifts "
+                    "Mul numbering under dynamic shapes). Regenerate for the "
+                    "training contract and re-check. Note: entries are checked "
+                    "per-entry (at least one name must hit); union entries "
+                    "that mix names of several graph forms are allowed."
+                )
         if not _config_matches_template(generated, template):
             raise SystemExit(
                 "ERROR: QAT regional module names do not match the current prepared training graph"

@@ -93,6 +93,7 @@ class DatasetTest(unittest.TestCase):
                 data_dir=directory,
                 image_shape=(3, 40, 40),
                 map_generator=map_generator,
+                det_preprocess="letterbox",
             )
             image, _ = dataset[0]
 
@@ -129,6 +130,43 @@ class DatasetTest(unittest.TestCase):
             [[35, 2], [3, 2], [3, 18], [35, 18]],
             atol=1.0e-5,
         )
+
+    def test_detection_dataset_defaults_to_paddle_resize_without_padding(self):
+        class CaptureMapGenerator:
+            def __call__(self, image_shape, polygons, ignore_tags):
+                self.polygons = [polygon.copy() for polygon in polygons]
+                height, width = image_shape
+                return {"map": np.zeros((height, width), dtype=np.float32)}
+
+        with tempfile.TemporaryDirectory() as directory:
+            self.write_image(directory, "wide.jpg", shape=(20, 40, 3))
+            annotation = [
+                {
+                    "transcription": "text",
+                    "points": [[4, 2], [36, 2], [36, 18], [4, 18]],
+                }
+            ]
+            labels = Path(directory) / "det.txt"
+            labels.write_text(
+                f"wide.jpg\t{json.dumps(annotation)}\n",
+                encoding="utf-8",
+            )
+            map_generator = CaptureMapGenerator()
+            dataset = DetectionDataset(
+                labels,
+                data_dir=directory,
+                image_shape=(3, 40, 40),
+                map_generator=map_generator,
+            )
+            image, _ = dataset[0]
+
+        self.assertEqual(tuple(image.shape), (3, 40, 40))
+        np.testing.assert_allclose(
+            map_generator.polygons[0],
+            np.asarray([[4, 4], [36, 4], [36, 36], [4, 36]], dtype=np.float32),
+        )
+        expected_resized = (127 / 255.0 - 0.485) / 0.229
+        self.assertAlmostEqual(float(image[0, 0, 0]), expected_resized, places=5)
 
     def test_detection_dataset_paddle_preset_produces_valid_db_targets(self):
         with tempfile.TemporaryDirectory() as directory:

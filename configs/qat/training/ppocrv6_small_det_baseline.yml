@@ -7,7 +7,9 @@ training:
   epochs: 50
   batch_size: 8
   workers: 8
+  optimizer: AdamW
   learning_rate: 0.00002
+  keep_bn: true
   image_shape: [3, 640, 640]
   augmentation: none
   amp: false

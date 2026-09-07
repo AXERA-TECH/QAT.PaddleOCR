@@ -57,6 +57,15 @@ def parse_args():
         help="Fuse reparameterizable inference branches before QAT capture.",
     )
     parser.add_argument(
+        "--keep-bn",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Keep the native post-sum BN of v6 RepDWConv during "
+            "reparameterization (QARepVGG-style conv+bn deploy graph)."
+        ),
+    )
+    parser.add_argument(
         "--onnx-optimize",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -84,6 +93,7 @@ def build_model(args):
         weights_path=args.weights,
         reparameterize=args.reparameterize,
         det_graph=args.det_graph,
+        keep_bn=args.keep_bn,
     )
 
 

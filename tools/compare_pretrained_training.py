@@ -7,14 +7,24 @@ import os
 import platform
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-RUNTIME_HOME = ROOT_DIR / "cache/runtime/ppocr_qat_home"
-RUNTIME_HOME.mkdir(parents=True, exist_ok=True)
-os.environ["HOME"] = str(RUNTIME_HOME)
+RUNTIME_DIR = Path(
+    os.environ.get(
+        "PPOCR_RUNTIME_DIR",
+        Path(tempfile.gettempdir()) / f"ppocr_qat_{os.getpid()}",
+    )
+).resolve()
+RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+tempfile.tempdir = str(RUNTIME_DIR)
+os.environ.setdefault("TMPDIR", str(RUNTIME_DIR))
+os.environ.setdefault("XDG_CACHE_HOME", str(RUNTIME_DIR / "xdg_cache"))
+os.environ.setdefault("PADDLE_HOME", str(RUNTIME_DIR / "paddle"))
+os.environ.setdefault("PADDLE_EXTENSION_DIR", str(RUNTIME_DIR / "paddle_extensions"))
 
 import numpy as np
 import paddle

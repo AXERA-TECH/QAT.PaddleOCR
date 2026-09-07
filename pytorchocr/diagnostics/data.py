@@ -21,6 +21,9 @@ def build_diagnostic_dataset(
         rec_multi_head=(
             task == "rec" and metadata.get("rec_graph") == "pretrained_train"
         ),
+        # Checkpoints created before det_preprocess was recorded used the
+        # historical centered-letterbox preprocessing.
+        det_preprocess=metadata.get("det_preprocess", "letterbox"),
     )
 
 

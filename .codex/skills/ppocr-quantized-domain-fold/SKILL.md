@@ -146,7 +146,8 @@ env PYTHONPATH="$PWD" python tools/export_ocr_onnx.py checkpoint \
 - ORT 全量 eval（`tools/eval.py --onnx ...`）与训练 val_acc 差值应 ≤ 0.03
   （exp12a 实测 0.616 vs 训练 0.617）；
 - 若出现多余 identity/requant，先查 qspec（见
-  `ppocr-qat-config-discovery` skill 与 docs/axera_qat/records/reparameterization_qat_issues.md 问题 10）。
+  `ppocr-qat-config-discovery` skill 与
+  `docs/references/development/axera_qat/records/reparameterization_qat_issues.md` 问题 10）。
 
 ## 关键陷阱
 
@@ -164,8 +165,8 @@ env PYTHONPATH="$PWD" python tools/export_ocr_onnx.py checkpoint \
    strict 重建 checkpoint 图。若 checkpoint 由修改前的 qspec/quantizer 训练（如
    exp9、或 qspec 文件后续改动），当前配置重建会报 missing/unexpected。
    脚本已自动优先使用训练时归档的 qspec 副本（metadata `copied_configs`，
-   run 目录内），避免此问题；若仍失败，须使用当时归档的 folded state
-   （exp9 的已存于 `cache/exp10a_fold_finetune_scripts/` 关联路径）。
+   run 目录内），避免此问题；若仍失败，应使用源 checkpoint 对应 run 目录中
+   已归档的 folded state，或重新从源 checkpoint 提取。
 6. **纯浮点 eval 不代表 finetune 起点**：折叠权重携带分支级 fake-quant 的
    clip 语义，裸 deploy 浮点前向精度与训练可能差很多（exp12a 折叠实测
    0.26 vs 训练 0.617，差值 ~0.36）是正常现象，不代表折叠失败。有意义的
@@ -178,8 +179,9 @@ env PYTHONPATH="$PWD" python tools/export_ocr_onnx.py checkpoint \
 
 ## 相关文档
 
-- `docs/axera_qat/plans/train_noreparam_infer_reparam.md`：方案与决策记录；
-- `docs/axera_qat/records/reparameterization_qat_issues.md`：问题 9（量化域耦合）、
+- `docs/references/development/axera_qat/plans/train_noreparam_infer_reparam.md`：方案与决策记录；
+- `docs/references/development/axera_qat/records/reparameterization_qat_issues.md`：问题 9（量化域耦合）、
   问题 10（output 字段失效）、问题 11（qspec 节点名随图形态变化）；
-- `docs/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md` §32-39：
+- `docs/references/development/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md`
+  §32-39：
   exp9/exp10/exp10a/exp11/exp12/exp12a/exp12b 实验记录。

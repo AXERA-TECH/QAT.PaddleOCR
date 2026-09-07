@@ -113,6 +113,7 @@ def build_det_model(
     reparameterize=True,
     graph_mode="training",
     insert_identity_bn=False,
+    keep_bn=False,
 ):
     config = load_ocr_config(config_path)
     if config["Architecture"].get("model_type") != "det":
@@ -123,7 +124,9 @@ def build_det_model(
     if weights_path:
         _load_state_dict(model, weights_path, task="det")
     if reparameterize:
-        reparameterize_for_deploy(model, insert_identity_bn=insert_identity_bn)
+        reparameterize_for_deploy(
+            model, insert_identity_bn=insert_identity_bn, keep_bn=keep_bn
+        )
     if graph_mode == "pretrained_train":
         model.graph_role = graph_mode
         model.train()
@@ -141,6 +144,7 @@ def build_rec_model(
     ctc_backbone_grad=False,
     graph_role="deploy",
     insert_identity_bn=False,
+    keep_bn=False,
 ):
     config = load_ocr_config(config_path)
     architecture = copy.deepcopy(config["Architecture"])
@@ -160,7 +164,9 @@ def build_rec_model(
     if weights_path:
         _load_state_dict(model, weights_path, task="rec", graph_role=graph_role)
     if reparameterize:
-        reparameterize_for_deploy(model, insert_identity_bn=insert_identity_bn)
+        reparameterize_for_deploy(
+            model, insert_identity_bn=insert_identity_bn, keep_bn=keep_bn
+        )
     if ctc_backbone_grad:
         encoder = model.head.ctc_encoder.encoder
         if not hasattr(encoder, "use_guide"):
@@ -183,6 +189,7 @@ def build_task_model(
     rec_ctc_backbone_grad=False,
     rec_graph="deploy",
     insert_identity_bn=False,
+    keep_bn=False,
 ):
     if task == "det":
         return build_det_model(
@@ -191,6 +198,7 @@ def build_task_model(
             reparameterize=reparameterize,
             graph_mode=det_graph,
             insert_identity_bn=insert_identity_bn,
+            keep_bn=keep_bn,
         )
     if task == "rec":
         return build_rec_model(
@@ -200,5 +208,6 @@ def build_task_model(
             ctc_backbone_grad=rec_ctc_backbone_grad,
             graph_role=rec_graph,
             insert_identity_bn=insert_identity_bn,
+            keep_bn=keep_bn,
         )
     raise ValueError(f"Unsupported OCR task: {task}")

@@ -49,6 +49,7 @@ from .profile import (
     validate_resume_contract,
 )
 from .trainer import Trainer
+from .logging import TeeStream, training_log
 
 __all__ = [
     "CTCLoss",
@@ -69,6 +70,8 @@ __all__ = [
     "RecognitionDataset",
     "RecognitionMultiScaleBatchSampler",
     "Trainer",
+    "TeeStream",
+    "training_log",
     "TrainingProfile",
     "epoch2_accuracy_guard",
     "build_criterion",

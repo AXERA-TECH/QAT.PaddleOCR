@@ -53,6 +53,7 @@ from pytorchocr.training import (
     load_ocr_config,
     load_training_profile,
     profile_value,
+    training_log,
     update_best_validation,
     validate_resume_contract,
 )
@@ -147,12 +148,34 @@ def parse_args():
         help="Training augmentation preset; validation is always deterministic.",
     )
     parser.add_argument(
+        "--det-preprocess",
+        choices=["letterbox", "paddle"],
+        help=(
+            "Detection resize preprocessing. 'paddle' is the default; "
+            "'letterbox' is the experimental centered-padding variant."
+        ),
+    )
+    parser.add_argument(
         "--multi-scale-training",
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Sample recognition training batches at --dynamic-heights.",
     )
     parser.add_argument("--save-every", type=int)
+    parser.add_argument(
+        "--save-every-steps",
+        type=int,
+        help=(
+            "Also save an intermediate checkpoint every N training steps, "
+            "each followed by a FULL validation pass (same protocol as the "
+            "per-epoch validation) that updates best.pt when the step beats "
+            "the current best. Useful when one epoch is very long (large "
+            "datasets): step validation lets best.pt track the best point "
+            "inside the epoch. Files are named epoch_NNNN_step_NNNNNNNN.pt; "
+            "each step validation appends one JSON line to "
+            "step_validation.jsonl."
+        ),
+    )
     parser.add_argument(
         "--float-accuracy-baseline",
         type=float,
@@ -187,6 +210,16 @@ def parse_args():
         help=(
             "Insert identity BatchNorm2d after every fused conv before PT2E "
             "QAT prepare (fusion pass is kept enabled)."
+        ),
+    )
+    parser.add_argument(
+        "--keep-bn",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Keep the native post-sum BN of v6 RepDWConv during "
+            "reparameterization (QARepVGG-style conv+bn deploy graph, v6 rec "
+            "only; QAT training)."
         ),
     )
     parser.add_argument(
@@ -362,6 +395,12 @@ def _detach_targets(targets):
 
 
 def train(args):
+    """Run training/evaluation while preserving all terminal output."""
+    with training_log(args.output_dir):
+        return _train(args)
+
+
+def _train(args):
     if args.eval_only and not args.val_label_file:
         raise ValueError("--eval-only requires --val-label-file.")
     if not args.eval_only and args.eval_stage != "prepared":
@@ -432,6 +471,16 @@ def train(args):
     save_every = int(profile_value(args.save_every, profile, "save_every", 1))
     if save_every <= 0:
         raise ValueError("--save-every must be positive.")
+    save_every_steps = profile_value(
+        args.save_every_steps,
+        profile,
+        "save_every_steps",
+        None,
+    )
+    if save_every_steps is not None:
+        save_every_steps = int(save_every_steps)
+        if save_every_steps <= 0:
+            raise ValueError("--save-every-steps must be positive.")
     observer_freeze_epoch = profile_value(
         args.observer_freeze_epoch,
         profile,
@@ -474,6 +523,16 @@ def train(args):
     augmentation = str(
         profile_value(args.augmentation, profile, "augmentation", "none")
     )
+    det_preprocess = str(
+        profile_value(
+            args.det_preprocess,
+            profile,
+            "det_preprocess",
+            "paddle" if args.task == "det" else "letterbox",
+        )
+    )
+    if args.task != "det" and det_preprocess != "letterbox":
+        raise ValueError("--det-preprocess is only valid for detection.")
     multi_scale_training = bool(
         profile_value(
             args.multi_scale_training,
@@ -522,6 +581,7 @@ def train(args):
         args.data_dir,
         rec_multi_head=rec_multi_head,
         augmentation="none" if args.eval_only else augmentation,
+        det_preprocess=det_preprocess,
     )
     if multi_scale_training:
         batch_sampler = RecognitionMultiScaleBatchSampler(
@@ -563,6 +623,7 @@ def train(args):
             return_polygons=args.task == "det",
             rec_multi_head=rec_multi_head,
             augmentation="none",
+            det_preprocess=det_preprocess,
         )
         validation_loader = DataLoader(
             validation_dataset,
@@ -588,11 +649,25 @@ def train(args):
             profile.training.get("insert_identity_bn", False) if profile else False,
         )
     )
+    keep_bn = bool(
+        config_value(
+            args.keep_bn,
+            profile.training.get("keep_bn", False) if profile else False,
+        )
+    )
     freeze_bn_stats = False
     if lsq and not qat:
         raise ValueError("--lsq is only valid for QAT training.")
     if insert_identity_bn and not qat:
         raise ValueError("--insert-identity-bn is only valid for QAT training.")
+    if keep_bn and not qat:
+        raise ValueError("--keep-bn is only valid for QAT training.")
+    if keep_bn and insert_identity_bn:
+        raise ValueError(
+            "--keep-bn and --insert-identity-bn are mutually exclusive."
+        )
+    if keep_bn and not reparameterize:
+        raise ValueError("--keep-bn requires --reparameterize.")
     if lsq:
         if not qat_config or not is_lsq_config(qat_config):
             raise ValueError(
@@ -652,6 +727,7 @@ def train(args):
         rec_ctc_backbone_grad=rec_ctc_backbone_grad,
         rec_graph=rec_graph,
         insert_identity_bn=insert_identity_bn,
+        keep_bn=keep_bn,
     )
     if kd:
         _set_intermediate_exposure(model, args.task, qat, rec_graph)
@@ -859,6 +935,7 @@ def train(args):
         "reparameterized": reparameterize,
         "lsq": lsq,
         "insert_identity_bn": insert_identity_bn,
+        "keep_bn": keep_bn,
         "bn_statistics_steps": bn_statistics_steps if insert_identity_bn else None,
         "bn_training_momentum": (
             bn_training_momentum if insert_identity_bn else None
@@ -900,6 +977,7 @@ def train(args):
         "image_shape": list(image_shape),
         "batch_size": batch_size,
         "epochs": epochs,
+        "save_every_steps": save_every_steps,
         "warmup_epochs": int(
             config_value(
                 warmup_epochs,
@@ -923,13 +1001,24 @@ def train(args):
         "observer_freeze_epoch": observer_freeze_epoch,
         "qat_ema": False,
         "preprocessing": (
-            "deterministic_center_letterbox" if args.task == "det" else "rec_padding"
+            (
+                "deterministic_center_letterbox"
+                if det_preprocess == "letterbox"
+                else "paddle_fixed_shape_resize"
+            )
+            if args.task == "det"
+            else "rec_padding"
         ),
         "amp": effective_amp,
         "dynamic_batch": qat and batch_size > 1,
         "dynamic_batch_max": dynamic_batch_max if qat else None,
         "dynamic_heights": dynamic_heights or [],
         "augmentation": augmentation,
+        # Keep a stable default for rec checkpoints as well.  The field is
+        # ignored by RecognitionDataset, but its resume-contract fallback
+        # must remain compatible with checkpoints created before this field
+        # was introduced.
+        "det_preprocess": det_preprocess,
         "multi_scale_training": multi_scale_training,
         "float_nodes": float_node_count,
         "validation_main_indicator": (
@@ -995,6 +1084,56 @@ def train(args):
             losses = trainer.train_step(images, targets)
             for name, value in losses.items():
                 totals[name] = totals.get(name, 0.0) + value
+            if (
+                save_every_steps is not None
+                and trainer.global_step > 0
+                and trainer.global_step % save_every_steps == 0
+            ):
+                # Step-based save with a full validation pass (same protocol as
+                # the per-epoch validation: observers temporarily disabled,
+                # fake quant kept on), and best.pt updated when this step beats
+                # the current best. Records a step_validation.jsonl line.
+                step_validation = (
+                    trainer.evaluate(validation_loader, metric=validation_metric)
+                    if validation_loader is not None
+                    else {}
+                )
+                trainer.save_checkpoint(
+                    output_dir
+                    / f"epoch_{epoch + 1:04d}_step_{trainer.global_step:08d}.pt",
+                    metadata=run_metadata,
+                )
+                step_is_best = update_best_validation(
+                    trainer,
+                    step_validation,
+                    metric=validation_metric,
+                )
+                if step_is_best:
+                    trainer.save_checkpoint(
+                        output_dir / "best.pt",
+                        metadata=run_metadata,
+                    )
+                step_summary = {
+                    "epoch": epoch + 1,
+                    "global_step": trainer.global_step,
+                    "is_best": step_is_best,
+                    **{
+                        f"val_{name}": value
+                        for name, value in step_validation.items()
+                    },
+                }
+                print(
+                    json.dumps(_round_summary_floats(step_summary), sort_keys=True),
+                    flush=True,
+                )
+                with open(
+                    output_dir / "step_validation.jsonl",
+                    "a",
+                    encoding="utf-8",
+                ) as step_log:
+                    step_log.write(
+                        json.dumps(_round_summary_floats(step_summary)) + "\n"
+                    )
             if (
                 qat
                 and observer_freeze_epoch is not None

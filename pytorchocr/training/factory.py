@@ -22,6 +22,7 @@ def build_dataset(
     return_polygons=False,
     rec_multi_head=False,
     augmentation="none",
+    det_preprocess="paddle",
 ):
     if task == "det":
         return DetectionDataset(
@@ -30,6 +31,7 @@ def build_dataset(
             image_shape=image_shape,
             return_polygons=return_polygons,
             augmentation=augmentation,
+            det_preprocess=det_preprocess,
         )
     global_config = config["Global"]
     dictionary_path = resolve_config_path(

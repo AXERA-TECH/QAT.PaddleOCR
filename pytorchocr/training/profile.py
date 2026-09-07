@@ -18,6 +18,7 @@ _TRAINING_KEYS = {
     "grad_clip_norm",
     "observer_freeze_epoch",
     "save_every",
+    "save_every_steps",
     "reparameterize",
     "warmup_epochs",
     "lr_final_factor",
@@ -30,11 +31,13 @@ _TRAINING_KEYS = {
     "momentum",
     "dynamic_heights",
     "augmentation",
+    "det_preprocess",
     "multi_scale_training",
     "float_accuracy_baseline",
     "epoch2_max_accuracy_drop",
     "lsq",
     "insert_identity_bn",
+    "keep_bn",
     "bn_statistics_steps",
     "bn_training_momentum",
     "freeze_bn_stats",
@@ -57,6 +60,7 @@ _RESUME_CONTRACT_KEYS = (
     "reparameterized",
     "lsq",
     "insert_identity_bn",
+    "keep_bn",
     "bn_statistics_steps",
     "bn_training_momentum",
     "freeze_bn_stats",
@@ -73,6 +77,7 @@ _RESUME_CONTRACT_KEYS = (
     "optimizer_momentum",
     "dynamic_heights",
     "augmentation",
+    "det_preprocess",
     "multi_scale_training",
     "float_accuracy_baseline",
     "epoch2_max_accuracy_drop",
@@ -107,7 +112,7 @@ class TrainingProfile:
 
 
 def _validate_training_values(training, qat=False):
-    positive_ints = ("epochs", "batch_size", "save_every")
+    positive_ints = ("epochs", "batch_size", "save_every", "save_every_steps")
     for key in positive_ints:
         if key in training and (
             not isinstance(training[key], int) or training[key] <= 0
@@ -207,6 +212,7 @@ def _validate_training_values(training, qat=False):
         "multi_scale_training",
         "lsq",
         "insert_identity_bn",
+        "keep_bn",
         "freeze_bn_stats",
         "kd",
     ):
@@ -246,6 +252,13 @@ def _validate_training_values(training, qat=False):
     ):
         raise ValueError(
             "Training profile augmentation must be 'none' or 'paddle'."
+        )
+    if "det_preprocess" in training and training["det_preprocess"] not in (
+        "letterbox",
+        "paddle",
+    ):
+        raise ValueError(
+            "Training profile det_preprocess must be 'letterbox' or 'paddle'."
         )
 
 
@@ -413,7 +426,7 @@ def _same_relocated_model_config(saved, current):
 def validate_resume_contract(saved_metadata, current_metadata):
     mismatches = []
     for key in _RESUME_CONTRACT_KEYS:
-        if key in ("rec_ctc_backbone_grad", "lsq", "insert_identity_bn", "kd"):
+        if key in ("rec_ctc_backbone_grad", "lsq", "insert_identity_bn", "keep_bn", "kd"):
             saved = bool(saved_metadata.get(key, False))
             current = bool(current_metadata.get(key, False))
         elif key == "rec_graph":
@@ -437,6 +450,15 @@ def validate_resume_contract(saved_metadata, current_metadata):
         elif key == "augmentation":
             saved = saved_metadata.get(key, "none")
             current = current_metadata.get(key, "none")
+        elif key == "det_preprocess":
+            # Checkpoints created before this field was introduced used the
+            # former centered-letterbox default. New metadata always records
+            # the current PaddleOCR fixed-shape default explicitly.
+            saved = saved_metadata.get(key, "letterbox")
+            current = current_metadata.get(
+                key,
+                "paddle" if current_metadata.get("task") == "det" else "letterbox",
+            )
         elif key == "multi_scale_training":
             saved = bool(saved_metadata.get(key, False))
             current = bool(current_metadata.get(key, False))

@@ -49,6 +49,7 @@ def build_prepared_qat_checkpoint(
         ),
         rec_graph=rec_graph,
         insert_identity_bn=bool(metadata.get("insert_identity_bn", False)),
+        keep_bn=bool(metadata.get("keep_bn", False)),
     )
     if kd and task == "det":
         # KD checkpoints were captured with intermediate features exposed.

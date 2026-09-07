@@ -40,6 +40,14 @@ def parse_args():
         help="CHW shape used to resolve a dynamic-spatial ONNX input.",
     )
     parser.add_argument(
+        "--det-preprocess",
+        choices=["paddle", "letterbox"],
+        help=(
+            "Detection resize preprocessing; defaults to PaddleOCR fixed-shape "
+            "resize."
+        ),
+    )
+    parser.add_argument(
         "--ort-optimize",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -86,6 +94,10 @@ def main(args):
         args.label_file,
         args.data_dir,
         return_polygons=args.task == "det",
+        det_preprocess=(
+            args.det_preprocess
+            or ("paddle" if args.task == "det" else "letterbox")
+        ),
     )
     sample_count = len(dataset)
     if args.samples is not None:

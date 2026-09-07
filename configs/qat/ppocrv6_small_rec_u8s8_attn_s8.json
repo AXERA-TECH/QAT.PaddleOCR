@@ -1,0 +1,292 @@
+{
+  "global_config": {
+    "is_symmetric": false,
+    "input": {
+      "dtype": "U8",
+      "qmin": 0,
+      "qmax": 255
+    },
+    "weight": {
+      "dtype": "S8",
+      "qmin": -127,
+      "qmax": 127
+    }
+  },
+  "regional_configs": [
+    {
+      "module_names": [
+        "linear",
+        "linear_4"
+      ],
+      "module_type": "linear",
+      "module_config": {
+        "is_symmetric": false,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "U8",
+          "qmin": 0,
+          "qmax": 255
+        },
+        "output": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "weight": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "mul_5",
+        "mul_6",
+        "mul_30",
+        "mul_31"
+      ],
+      "module_type": "mul",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "output": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "matmul",
+        "matmul_2"
+      ],
+      "module_type": "matmul",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "output": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "softmax",
+        "softmax_1"
+      ],
+      "module_type": "softmax",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "output": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "matmul_1",
+        "matmul_3"
+      ],
+      "module_type": "matmul",
+      "module_config": {
+        "is_symmetric": true,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "matmul_4",
+        "matmul_6",
+        "matmul_8",
+        "matmul_10",
+        "matmul_12",
+        "matmul_14",
+        "matmul_16",
+        "matmul_18"
+      ],
+      "module_type": "matmul",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "output": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "matmul_5",
+        "matmul_7",
+        "matmul_9",
+        "matmul_11",
+        "matmul_13",
+        "matmul_15",
+        "matmul_17",
+        "matmul_19"
+      ],
+      "module_type": "matmul",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "output": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "softmax_2",
+        "softmax_3",
+        "softmax_4",
+        "softmax_5",
+        "softmax_6",
+        "softmax_7",
+        "softmax_8",
+        "softmax_9"
+      ],
+      "module_type": "softmax",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "output": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "linear_10",
+        "linear_12",
+        "linear_17",
+        "linear_19",
+        "linear_24",
+        "linear_26",
+        "linear_31",
+        "linear_33"
+      ],
+      "module_type": "linear",
+      "module_config": {
+        "is_symmetric": false,
+        "output_is_symmetric": true,
+        "output": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "input": {
+          "dtype": "U8",
+          "qmin": 0,
+          "qmax": 255
+        }
+      }
+    },
+    {
+      "module_names": [
+        "linear_11",
+        "linear_14",
+        "linear_18",
+        "linear_21",
+        "linear_25",
+        "linear_28",
+        "linear_32",
+        "linear_35"
+      ],
+      "module_type": "linear",
+      "module_config": {
+        "is_symmetric": true,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "mul_34",
+        "mul_36",
+        "mul_38",
+        "mul_40"
+      ],
+      "module_type": "mul",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "output": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "mul_33",
+        "mul_35",
+        "mul_37",
+        "mul_39"
+      ],
+      "module_type": "mul",
+      "module_config": {
+        "is_symmetric": true,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    }
+  ]
+}

@@ -35,9 +35,41 @@ class TrainingProfileTest(unittest.TestCase):
         self.assertTrue(profile.qat_config.is_file())
         self.assertEqual(profile.training["epochs"], 50)
         self.assertEqual(profile.training["image_shape"], [3, 640, 640])
+        self.assertEqual(profile.training["optimizer"], "AdamW")
+        self.assertTrue(profile.training["keep_bn"])
         self.assertIsNone(profile.training["observer_freeze_epoch"])
         self.assertEqual(profile_value(4, profile, "batch_size"), 4)
         self.assertEqual(profile_value(None, profile, "batch_size"), 8)
+
+    def test_checked_in_detection_float_finetune_profile(self):
+        profile = load_training_profile(
+            "configs/qat/training/ppocrv6_small_det_float_finetune.yml"
+        )
+        profile.validate_contract("det", "PP-OCRv6_small_det")
+
+        self.assertFalse(profile.qat)
+        self.assertIsNone(profile.qat_config)
+        self.assertEqual(profile.training["optimizer"], "Adam")
+        self.assertEqual(profile.training["augmentation"], "paddle")
+        self.assertNotIn("det_preprocess", profile.training)
+        self.assertFalse(profile.training["amp"])
+        self.assertEqual(profile.training["epochs"], 100)
+        self.assertEqual(profile.training["image_shape"], [3, 640, 640])
+
+    def test_checked_in_detection_float_finetune_bs64_profile(self):
+        profile = load_training_profile(
+            "configs/qat/training/ppocrv6_small_det_float_finetune_bs64.yml"
+        )
+        profile.validate_contract("det", "PP-OCRv6_small_det")
+
+        self.assertFalse(profile.qat)
+        self.assertIsNone(profile.qat_config)
+        self.assertEqual(profile.training["optimizer"], "Adam")
+        self.assertEqual(profile.training["batch_size"], 64)
+        self.assertEqual(profile.training["learning_rate"], 0.001)
+        self.assertEqual(profile.training["augmentation"], "paddle")
+        self.assertFalse(profile.training["amp"])
+        self.assertEqual(profile.training["epochs"], 100)
 
     def test_checked_in_recognition_profile(self):
         profile = load_training_profile(
@@ -401,6 +433,17 @@ class TrainingProfileTest(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(ValueError, "augmentation"):
+                load_training_profile(profile_path)
+
+    def test_profile_rejects_unknown_detection_preprocess(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile_path = Path(directory) / "profile.yml"
+            profile_path.write_text(
+                "name: invalid\ntask: det\ntraining:\n"
+                "  det_preprocess: resize_magic\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "det_preprocess"):
                 load_training_profile(profile_path)
 
     def test_cosine_scheduler_preserves_final_factor(self):

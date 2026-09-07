@@ -53,6 +53,23 @@ inspect the resulting requants. Never call a U16/S16 model complete unless its A
 also explicitly or automatically resolved to S16. The generator refuses to overwrite its base config
 or an existing output.
 
+### softmax·V MatMul entry: output follows the global activation
+
+The second MatMul (softmax · V) entry intentionally **omits** `output`/`output_is_symmetric` so its
+result domain follows the global activation (U8 for the U8/S8 contract, U16 for U16/S16). v6 rec
+(2026-08-19) ships this form — the QuantONNX shows no requantize on `matmul_1/matmul_3` and their
+outputs quantize to U8 by the global rule. Older configs (v5-rec
+`configs/qat/ppocrv5_mobile_rec_u8s8_attn_s8_lsq.json`) spell the same choice out explicitly as
+`output: <global activation>` with `output_is_symmetric: false`. `--check` normalizes both forms and
+accepts them as equivalent (`_module_config_equivalent`).
+
+### v6 keep-bn
+
+v6 PPLCNetV4 reparameterization may keep the native post-sum BN
+(`--keep-bn`, QAT-only, matches `train.py --keep-bn` and the keep-bn training record §1.2). Pass
+`--keep-bn` to discovery so the prepared graph (and therefore the QAT JSON module names) matches the
+training contract. For v5 / other models `--keep-bn` is a no-op.
+
 ## Check
 
 Run check against the checked-in generated config before every smoke or training run:
@@ -74,17 +91,49 @@ generate Pulsar2 configuration from that exact QuantONNX.
 
 Checked-in QAT JSON may be a union over several graph forms (training graph + folded graph + smoke
 graph; see training record §39). `--check` is union-aware: each entry regenerated from the current
-graph must be subsumed by a template entry of the same `module_type` (equal `module_config` and its
-names contained in the template's name list). Template entries with no generated counterpart (e.g.
-S16 downsampling entries, or names of other graph forms) are allowed — verify those by annotation
-inspection of the target prepared graph (e.g. the `dump_blocks6_nodes.py` pattern in
-`docs/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md` §43.1).
+graph must be subsumed by a template entry of the same `module_type` (equal `module_config` — with
+the softmax·V omission normalization above — and its names contained in the template's name list).
+Template entries with no generated counterpart (e.g. S16 downsampling entries, or names of other
+graph forms) are allowed — verify those by annotation inspection of the target prepared graph (e.g.
+the `dump_blocks6_nodes.py` pattern in
+`docs/references/development/axera_qat/records/icdar2015_ppocrv5_mobile_rec_qat_training.md`
+§43.1).
 
 For U8/S8 configs the output-projection entry was removed after validation (proj is FC-like; see
 training record §34.4), so pass `--no-proj-entry` when checking them — otherwise the regenerated
 config contains a proj entry the template lacks.
 
-## Node numbering pitfall (2026-08-13)
+v6 rec training contract (2026-08-19) — check with `--strict-names` under the exact training
+contract before training:
+
+```bash
+python .codex/skills/ppocr-qat-config-discovery/scripts/discover_ppocr_qat_config.py \
+  --model-config configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml \
+  --weights weights/ptocr_v6_small_rec_full.pth \
+  --base-config configs/qat/ppocrv6_small_rec_u8s8_attn_s8.json \
+  --image-shape 3 48 320 \
+  --attention-dtype S8 \
+  --expected-attention 2 \
+  --no-proj-entry \
+  --rec-graph pretrained_train \
+  --batch-size 64 \
+  --keep-bn \
+  --check --strict-names
+```
+
+The deploy contract is checked the same way with `--rec-graph deploy --batch-size 1 --keep-bn`
+(normal mode, no `--strict-names`: the deploy graph has no gtc branch, and the ctc union names
+are subsumed by the template).
+
+Add `--strict-names` to also require every template entry (including hand-written entries such
+as the v6 gtc branch) to hit the current prepared graph — per entry, at least one of its
+`module_names` must exist. Union entries that mix names of several graph forms (e.g. the v6 ctc
+scale Mul entry listing both the deploy-graph `mul_5/mul_6` and the keep-bn dynamic-batch-64
+training-graph `mul_30/mul_31`) stay valid: each graph contract hits its own names. A template
+entry whose names come from a completely different contract (e.g. static batch-1 gtc names
+checked against a dynamic training graph) is reported and blocks the run.
+
+## Node numbering pitfall (2026-08-13, updated 2026-08-19)
 
 QAT regional `module_names` are matched against the graph produced by
 `prepare_qat_pt2e`, whose node numbering depends on the training contract:
@@ -101,6 +150,16 @@ global U16 input) and QuantONNX gains requantize Identity nodes
 (`select -> Mul`, `mul_58` vs `mul_60/61`). Verify with
 `--batch-size`/`--dynamic-batch` matching training, then re-check the exported
 Identity count (expected: only the SE avg_pool u16->u16 boundary).
+
+**Static batch 1 vs dynamic batch 64 is a graph-structure difference, not just
+shapes (2026-08-19)**: enabling dynamic shapes inserts nodes, so Mul numbering
+differs between the two contracts even for the same model code — e.g. v6 rec
+ctc attention scale Mul is `mul_5/mul_6` in the static batch-1 training graph
+but `mul_8/mul_9` under the dynamic batch-64 training contract (gtc branch
+`mul_10..18`), and with `--keep-bn` it shifts again (`mul_30/31`). A config
+checked against a static batch-1 QuantONNX therefore silently mis-targets the
+dynamic training graph: the Mul entries hit the wrong nodes. Always check with
+`--strict-names` under the exact training contract before training.
 
 ## Acceptance
 

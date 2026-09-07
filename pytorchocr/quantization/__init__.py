@@ -28,6 +28,10 @@ from .folding import (
     collect_quantized_weight_map,
     folded_eager_model,
 )
+from .qparams import (
+    activation_qparam_sites,
+    transfer_activation_qparams_by_site,
+)
 
 
 def numpy_error_stats(*args, **kwargs):
@@ -90,6 +94,8 @@ __all__ = [
     "checkpoint_qat_config",
     "collect_quantized_weight_map",
     "folded_eager_model",
+    "activation_qparam_sites",
+    "transfer_activation_qparams_by_site",
     "numpy_error_stats",
     "qdq_stats",
     "sequence_error_stats",

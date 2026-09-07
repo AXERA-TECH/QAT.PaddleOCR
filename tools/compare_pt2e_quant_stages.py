@@ -11,7 +11,6 @@ from torch.ao.quantization import (
     enable_fake_quant,
     move_exported_model_to_eval,
 )
-from torch.ao.quantization.quantize_pt2e import prepare_qat_pt2e
 from torch.utils.data import DataLoader, Subset
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -19,8 +18,10 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from pytorchocr.quantization import (
+    build_qat_dynamic_shapes,
     convert_prepared_model,
     load_axera_quantizer,
+    prepare_qat_model,
 )
 from pytorchocr.diagnostics import (
     compute_recognition_pair,
@@ -67,9 +68,32 @@ def parse_args():
     parser.add_argument("--calibration-samples", type=int, default=32)
     parser.add_argument("--calibration-batch-size", type=int, default=8)
     parser.add_argument(
+        "--calibration-label-file",
+        help=(
+            "Optional label file for observer calibration, independent of the "
+            "evaluation set. Default: calibrate on the first samples of the "
+            "evaluation set (legacy behavior — note that this overlaps "
+            "calibration with evaluation data)."
+        ),
+    )
+    parser.add_argument(
+        "--calibration-data-dir",
+        default=None,
+        help="Data directory for --calibration-label-file (default: --data-dir).",
+    )
+    parser.add_argument(
         "--reparameterize",
         action=argparse.BooleanOptionalAction,
         default=True,
+    )
+    parser.add_argument(
+        "--keep-bn",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Keep the native post-sum BN of v6 RepDWConv during "
+            "reparameterization (matches train.py --keep-bn QAT contract)."
+        ),
     )
     return parser.parse_args()
 
@@ -104,16 +128,16 @@ def main(args):
         args.model_config,
         weights_path=args.weights,
         reparameterize=args.reparameterize,
+        rec_graph="deploy",
+        keep_bn=args.keep_bn,
     )
     capture_images = torch.randn(2, *args.image_shape)
-    exported = torch.export.export_for_training(
-        capture_model,
+    dynamic_shapes = ({0: torch.export.Dim("batch", min=1)},)
+    prepared, _ = prepare_qat_model(
+        copy.deepcopy(capture_model),
         (capture_images,),
-        dynamic_shapes=({0: torch.export.Dim("batch", min=1)},),
-    ).module()
-    prepared = prepare_qat_pt2e(
-        copy.deepcopy(exported),
         load_axera_quantizer(args.qat_config),
+        dynamic_shapes=dynamic_shapes,
     )
     dataset = build_dataset(
         "rec",
@@ -126,7 +150,18 @@ def main(args):
     if args.samples:
         dataset = Subset(dataset, range(min(args.samples, len(dataset))))
     device = torch.device(args.device)
-    calibration_samples = _calibrate(prepared, dataset, args, device)
+    if args.calibration_label_file is not None:
+        calibration_dataset = build_dataset(
+            "rec",
+            args.model_config,
+            config,
+            tuple(args.image_shape),
+            args.calibration_label_file,
+            args.calibration_data_dir or args.data_dir,
+        )
+    else:
+        calibration_dataset = dataset
+    calibration_samples = _calibrate(prepared, calibration_dataset, args, device)
     qparams = observer_qparams(prepared)
     if qparams["modules"] == 0 or qparams["nonfinite"]:
         raise RuntimeError(f"Observer qparams are incomplete: {qparams['nonfinite'][:10]}")

@@ -394,17 +394,21 @@ class RepDWConv(nn.Module):
         nn.init.constant_(self.bn.bias, 0.0)
 
         self.is_repped = False
+        self.keep_bn = False
         self.reparam_conv = None
 
     def forward(self, x):
         if self.is_repped:
-            return self.reparam_conv(x)
+            out = self.reparam_conv(x)
+            if self.keep_bn:
+                out = self.bn(out)
+            return out
         return self.bn(self.conv(x) + self.conv1(x) + x)
 
-    def rep(self, fuse_lab=None):
+    def rep(self, fuse_lab=None, keep_bn=False):
         if self.is_repped:
             return
-        fused = self._fuse_conv()
+        fused = self._fuse_conv(absorb_bn=not keep_bn)
         padding = (self.kernel_size - 1) // 2
         self.reparam_conv = nn.Conv2d(
             self.channels,
@@ -418,11 +422,25 @@ class RepDWConv(nn.Module):
         self.reparam_conv.bias.data.copy_(fused.bias)
         del self.conv
         del self.conv1
-        del self.bn
+        if keep_bn:
+            # Keep the native post-sum BN: the reparameterized structure is
+            # conv + bn instead of a bare fused conv. Unlike the v5
+            # insert_identity_bn route, this BN is the original training-time
+            # post-addition BN (QARepVGG style): its running statistics and
+            # gamma/beta evolved together during Paddle pretraining, so no
+            # measured-statistics initialization is needed and there is no
+            # exp8-style gamma/var mismatch premise. QAT prepare fuses
+            # conv->bn into the approximate QAT subgraph (BN node kept with
+            # training=True batch statistics); convert folds it back into a
+            # single conv so QuantONNX stays BN=0.
+            self.keep_bn = True
+        else:
+            del self.bn
+            self.keep_bn = False
         self.is_repped = True
 
     @torch.no_grad()
-    def _fuse_conv(self):
+    def _fuse_conv(self, absorb_bn=True):
         conv = self.conv.fuse()
         pad_size = self.kernel_size // 2
         conv1_w = F.pad(self.conv1.weight, [pad_size, pad_size, pad_size, pad_size])
@@ -436,6 +454,10 @@ class RepDWConv(nn.Module):
         )
         w = conv.weight + conv1_w + identity
         conv.weight.data.copy_(w)
+        if not absorb_bn:
+            # keep_bn=True: fold only the three branches; leave the post-BN
+            # unabsorbed so the deployment graph is conv + bn.
+            return conv
         bn = self.bn
         scale = bn.weight / (bn.running_var + bn.eps) ** 0.5
         conv.weight.data.copy_(conv.weight * scale[:, None, None, None])
@@ -516,11 +538,11 @@ class LCNetV4Block(nn.Module):
             return x + self.channel_mixer(x)
         return self.channel_mixer(x)
 
-    def rep(self, fuse_lab=None):
+    def rep(self, fuse_lab=None, keep_bn=False):
         if self.is_repped:
             return
         if self.use_rep_dw:
-            self.token_mixer.rep_dw.rep(fuse_lab=fuse_lab)
+            self.token_mixer.rep_dw.rep(fuse_lab=fuse_lab, keep_bn=keep_bn)
         else:
             self.token_mixer.dw_conv = self.token_mixer.dw_conv.fuse()
         for name in ("expand", "compress"):
@@ -662,7 +684,7 @@ class PPLCNetV4(nn.Module):
                 x = F.avg_pool2d(x, [3, 2])
             return x
 
-    def rep(self, fuse_lab=None):
+    def rep(self, fuse_lab=None, keep_bn=False):
         if self.is_repped:
             return
         if self.det:
@@ -674,7 +696,7 @@ class PPLCNetV4(nn.Module):
                 self.blocks_s4,
             ]:
                 for block in stage:
-                    block.rep(fuse_lab=fuse_lab)
+                    block.rep(fuse_lab=fuse_lab, keep_bn=keep_bn)
         else:
             if hasattr(self.conv1, "rep"):
                 self.conv1.rep()
@@ -686,5 +708,5 @@ class PPLCNetV4(nn.Module):
                 self.blocks6,
             ]:
                 for block in stage:
-                    block.rep()
+                    block.rep(keep_bn=keep_bn)
         self.is_repped = True
