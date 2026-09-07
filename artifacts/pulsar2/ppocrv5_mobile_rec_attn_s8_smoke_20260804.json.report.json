@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "generator": "ppocrv5-rec-pulsar2-config",
+  "onnx": {
+    "path": "/home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv5_mobile_rec_attn_s8_keep_u8_requant_smoke_20260804.onnx",
+    "sha256": "4a5f4609f2ab9a2e555097156b56e840479fe8fc5b43b8cb5c10dcb61a5c2b05",
+    "inputs": [
+      {
+        "name": "images",
+        "shape": [
+          1,
+          3,
+          48,
+          320
+        ],
+        "dtype": "FLOAT"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "logits",
+        "shape": [
+          1,
+          40,
+          18385
+        ],
+        "dtype": "FLOAT"
+      }
+    ],
+    "nodes": 955,
+    "quantize_linear": 250,
+    "dequantize_linear": 436,
+    "activation_zero_point_dtypes": {
+      "S8": 20,
+      "U8": 230
+    },
+    "attention": [
+      {
+        "qkv_output": "node_Add_1586",
+        "core": [
+          "node_Reshape_1599",
+          "node_Transpose_1604",
+          "node_Gather_1614",
+          "node_Mul_1622",
+          "node_Gather_1629",
+          "node_Gather_1635",
+          "node_Transpose_1640",
+          "node_MatMul_1645",
+          "node_Softmax_1651"
+        ],
+        "first_matmul": "node_MatMul_1645",
+        "softmax": "node_Softmax_1651",
+        "second_matmul": "node_MatMul_1662",
+        "dtypes": {
+          "qkv_output": "S8",
+          "first_matmul_inputs": [
+            "S8",
+            "S8"
+          ],
+          "first_matmul_output": "S8",
+          "softmax_output": "S8",
+          "second_matmul_inputs": [
+            "S8",
+            "S8"
+          ],
+          "second_matmul_output": "U8"
+        }
+      },
+      {
+        "qkv_output": "node_Add_1767",
+        "core": [
+          "node_Reshape_1780",
+          "node_Transpose_1785",
+          "node_Gather_1794",
+          "node_Mul_1801",
+          "node_Gather_1807",
+          "node_Gather_1812",
+          "node_Transpose_1817",
+          "node_MatMul_1822",
+          "node_Softmax_1828"
+        ],
+        "first_matmul": "node_MatMul_1822",
+        "softmax": "node_Softmax_1828",
+        "second_matmul": "node_MatMul_1839",
+        "dtypes": {
+          "qkv_output": "S8",
+          "first_matmul_inputs": [
+            "S8",
+            "S8"
+          ],
+          "first_matmul_output": "S8",
+          "softmax_output": "S8",
+          "second_matmul_inputs": [
+            "S8",
+            "S8"
+          ],
+          "second_matmul_output": "U8"
+        }
+      }
+    ],
+    "requants": [
+      {
+        "dequantize": "node_DequantizeLinear_1506",
+        "identity": "node_DequantizeLinear_1506_to_node_QuantizeLinear_1512_identity",
+        "quantize": "node_QuantizeLinear_1512",
+        "from": {
+          "dtype": "U8",
+          "scale": 0.19532202184200287,
+          "zero_point": 8
+        },
+        "to": {
+          "dtype": "U8",
+          "scale": 0.19381678104400635,
+          "zero_point": 8
+        }
+      }
+    ]
+  },
+  "pulsar2": {
+    "config": "/home/heqi/project/PaddleOCR/route2/PaddleOCR2Pytorch-QAT/artifacts/pulsar2/ppocrv5_mobile_rec_attn_s8_smoke_20260804.json",
+    "config_sha256": "677013a10c89ae7105eb18ee289e7adaecd2959f9f22f5d6c10d9e21dd853ea7",
+    "target_hardware": "AX650",
+    "npu_mode": "NPU3"
+  },
+  "preprocessing": {
+    "location": "host",
+    "resize": "preserve aspect ratio to height 48",
+    "padding": "right zero padding to width 320",
+    "normalization": "[-1, 1] before Pulsar2 FP32/NCHW identity processor",
+    "channel_order": "BGR (OpenCV route2 preprocessing contract)"
+  }
+}

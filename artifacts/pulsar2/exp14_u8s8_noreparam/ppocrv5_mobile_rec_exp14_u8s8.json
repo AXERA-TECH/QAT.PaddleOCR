@@ -1,0 +1,81 @@
+{
+  "input": "exports/quantonnx/exp14_u8s8_noreparam/ppocrv5_mobile_rec_exp14_u8s8_noreparam_qdq.onnx",
+  "output_dir": "artifacts/pulsar2/exp14_u8s8_noreparam/build",
+  "model_type": "QuantONNX",
+  "target_hardware": "AX650",
+  "npu_mode": "NPU3",
+  "quant": {
+    "input_configs": [
+      {
+        "tensor_name": "DEFAULT",
+        "calibration_dataset": "/path/to/dataset"
+      }
+    ],
+    "layer_configs": [
+      {
+        "layer_names": [
+          "node_Add_3705",
+          "node_Add_3879"
+        ],
+        "output_data_type": "S8"
+      },
+      {
+        "layer_names": [
+          "node_Reshape_3718",
+          "node_Transpose_3723",
+          "node_Gather_3733",
+          "node_Mul_3741",
+          "node_Gather_3748",
+          "node_Gather_3754",
+          "node_Transpose_3759",
+          "node_MatMul_3764",
+          "node_Softmax_3770",
+          "node_Reshape_3892",
+          "node_Transpose_3897",
+          "node_Gather_3906",
+          "node_Mul_3913",
+          "node_Gather_3919",
+          "node_Gather_3924",
+          "node_Transpose_3929",
+          "node_MatMul_3934",
+          "node_Softmax_3940"
+        ],
+        "data_type": "S8",
+        "output_data_type": "S8"
+      },
+      {
+        "layer_names": [
+          "node_MatMul_3781",
+          "node_MatMul_3951"
+        ],
+        "data_type": "S8"
+      }
+    ],
+    "conv_bias_data_type": "FP32",
+    "precision_analysis": true,
+    "precision_analysis_method": "PerLayer",
+    "precision_analysis_mode": "NPUBackend"
+  },
+  "input_processors": [
+    {
+      "tensor_name": "DEFAULT",
+      "tensor_layout": "NCHW",
+      "src_layout": "NCHW",
+      "src_dtype": "FP32",
+      "mean": [
+        0,
+        0,
+        0
+      ],
+      "std": [
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "output_processors": [],
+  "compiler": {
+    "check": 2
+  }
+}

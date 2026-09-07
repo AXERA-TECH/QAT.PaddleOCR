@@ -1,0 +1,53 @@
+{
+  "artifact_kind": "structure_smoke_not_accuracy_baseline",
+  "command": [
+    "tools/qat_smoke.py",
+    "--task",
+    "rec",
+    "--model-config",
+    "configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml",
+    "--weights",
+    "ptocr_v6_rec_PP-OCRv6_small_rec_pretrained.pth",
+    "--qat-config",
+    "configs/qat/ppocrv6_small_rec_u8s8.json",
+    "--image-shape",
+    "3",
+    "48",
+    "320",
+    "--reparameterize",
+    "--onnx-optimize"
+  ],
+  "onnx": {
+    "path": "/home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv6_small_rec_reparameterized_qat_smoke_20260804.onnx",
+    "sha256": "54a3f0e7de3d9c94209556987bb2f8a57c369ab9202ca0da9db850b22de47055",
+    "nodes": 682,
+    "batch_normalization": 0,
+    "quantize_linear": 161,
+    "dequantize_linear": 280,
+    "direct_dq_q": 2,
+    "redundant_dq_q": 0,
+    "requantize_dq_q": 2,
+    "conv_qdq_batchnorm": 0,
+    "unquantized_conv_outputs": [],
+    "concat_domains": {
+      "quantized": 1,
+      "shared_qparams": 1
+    },
+    "hard_activation_domains": {
+      "total": 5,
+      "quantized": 5,
+      "standard": 5,
+      "paddle_hsigmoid": 0
+    },
+    "validate_qdq_graph": "pass"
+  },
+  "ort": {
+    "input_seed": 20260804,
+    "output_shape": [1, 40, 18710],
+    "optimize_off_finite": true,
+    "optimize_on_finite": true,
+    "optimize_on_vs_off_mae": 0.4238455891609192,
+    "optimize_on_vs_off_max_abs": 3.73557448387146,
+    "semantic_reference": "optimize_off"
+  }
+}

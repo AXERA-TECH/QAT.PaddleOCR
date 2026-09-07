@@ -1,0 +1,27 @@
+name: ppocrv5-mobile-rec-u8s8-attn-s8-downsample-s16-qat-adamw-exp15-reparam
+task: rec
+model_name: PP-OCRv5_mobile_rec
+qat: true
+qat_config: ../ppocrv5_mobile_rec_u8s8_attn_s8_downsample_s16_lsq.json
+training:
+  epochs: 50
+  batch_size: 64
+  workers: 8
+  optimizer: AdamW
+  learning_rate: 0.00003
+  weight_decay: 0.0001
+  ctc_fc_weight_decay: 0.00001
+  lab_lr_multiplier: 0.1
+  image_shape: [3, 48, 320]
+  augmentation: none
+  multi_scale_training: false
+  amp: false
+  reparameterize: true
+  rec_graph: pretrained_train
+  rec_ctc_backbone_grad: false
+  seed: 20260814
+  warmup_epochs: 5
+  lr_final_factor: 0.1
+  observer_freeze_epoch: null
+  save_every: 1
+  lsq: true

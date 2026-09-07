@@ -1,0 +1,258 @@
+{
+  "batch_size": 2,
+  "device": "cpu",
+  "image_shape": [
+    3,
+    64,
+    64
+  ],
+  "inputs_sha256": "88bc85f854d5ebe6aa84bf97c31ace20f207d03d91d3ec334deae3df6243abc7",
+  "model_config": "/home/heqi/project/PaddleOCR/configs/det/PP-OCRv5/PP-OCRv5_mobile_det.yml",
+  "model_config_sha256": "e1a1cfb90f5766c77aeedc73f701953cd04917423189438eb818a6cf8555b6ba",
+  "model_name": "PP-OCRv5_mobile_det",
+  "modes": {
+    "eval_bn": {
+      "gradients": {
+        "backbone": {
+          "cosine": 0.9999999999961221,
+          "elements": 3324168,
+          "mae": 2.228817480646978e-09,
+          "max_abs": 0.00014275312423706055,
+          "parameter_tensors": 539,
+          "relative_l2": 3.5529169127315534e-06,
+          "shape": [
+            3324168
+          ]
+        },
+        "binarize": {
+          "cosine": 0.9999999999998539,
+          "elements": 23257,
+          "mae": 1.0781176759263056e-11,
+          "max_abs": 1.1816155165433884e-08,
+          "parameter_tensors": 9,
+          "relative_l2": 3.1052188832063925e-05,
+          "shape": [
+            23257
+          ]
+        },
+        "neck": {
+          "cosine": 0.9999999999997365,
+          "elements": 144600,
+          "mae": 2.203642221660901e-09,
+          "max_abs": 1.2293457984924316e-07,
+          "parameter_tensors": 40,
+          "relative_l2": 7.2693943921734e-07,
+          "shape": [
+            144600
+          ]
+        },
+        "threshold": {
+          "cosine": 0.9999999999999075,
+          "elements": 23257,
+          "mae": 1.0606402128393292e-08,
+          "max_abs": 4.76837158203125e-07,
+          "parameter_tensors": 9,
+          "relative_l2": 4.3034933395681726e-07,
+          "shape": [
+            23257
+          ]
+        }
+      },
+      "losses": {
+        "loss": {
+          "abs": 3.337860107421875e-06,
+          "paddle": 7.190298080444336,
+          "torch": 7.1902947425842285
+        },
+        "loss_binary_maps": {
+          "abs": 0.0,
+          "paddle": 1.0,
+          "torch": 1.0
+        },
+        "loss_cbn": {
+          "abs": 0.0,
+          "paddle": 0.0,
+          "torch": 0.0
+        },
+        "loss_shrink_maps": {
+          "abs": 3.337860107421875e-06,
+          "paddle": 4.999999046325684,
+          "torch": 4.999995708465576
+        },
+        "loss_threshold_maps": {
+          "abs": 0.0,
+          "paddle": 1.1902990341186523,
+          "torch": 1.1902990341186523
+        }
+      },
+      "maps": {
+        "all": {
+          "mae": 3.31351146320111e-08,
+          "max_abs": 6.854534149169922e-07,
+          "relative_l2": 3.0736004624317874e-07,
+          "shape": [
+            2,
+            3,
+            64,
+            64
+          ]
+        },
+        "binary": {
+          "mae": 1.867326936502699e-14,
+          "max_abs": 2.2168933355715126e-12,
+          "relative_l2": 4.287275567743496e-06,
+          "shape": [
+            2,
+            64,
+            64
+          ]
+        },
+        "shrink": {
+          "mae": 1.1922977899797663e-12,
+          "max_abs": 5.911715561524034e-11,
+          "relative_l2": 4.210647776385751e-06,
+          "shape": [
+            2,
+            64,
+            64
+          ]
+        },
+        "threshold": {
+          "mae": 9.940413292497396e-08,
+          "max_abs": 6.854534149169922e-07,
+          "relative_l2": 3.073600461786318e-07,
+          "shape": [
+            2,
+            64,
+            64
+          ]
+        }
+      }
+    },
+    "train_bn": {
+      "gradients": {
+        "backbone": {
+          "cosine": 0.9999999495595095,
+          "elements": 3324168,
+          "mae": 5.953864834914911e-06,
+          "max_abs": 0.05055999755859375,
+          "parameter_tensors": 539,
+          "relative_l2": 0.0003305657906909958,
+          "shape": [
+            3324168
+          ]
+        },
+        "binarize": {
+          "cosine": 0.9999999642587037,
+          "elements": 23257,
+          "mae": 6.564424235325786e-06,
+          "max_abs": 0.00022011995315551758,
+          "parameter_tensors": 9,
+          "relative_l2": 0.00026985205041197804,
+          "shape": [
+            23257
+          ]
+        },
+        "neck": {
+          "cosine": 0.9999999833066614,
+          "elements": 144600,
+          "mae": 1.5464009810448855e-06,
+          "max_abs": 0.00010114908218383789,
+          "parameter_tensors": 40,
+          "relative_l2": 0.0001835876766263804,
+          "shape": [
+            144600
+          ]
+        },
+        "threshold": {
+          "cosine": 0.9999999988160692,
+          "elements": 23257,
+          "mae": 2.6907701052419664e-07,
+          "max_abs": 1.527555286884308e-05,
+          "parameter_tensors": 9,
+          "relative_l2": 4.963836065512004e-05,
+          "shape": [
+            23257
+          ]
+        }
+      },
+      "losses": {
+        "loss": {
+          "abs": 8.58306884765625e-06,
+          "paddle": 5.45142936706543,
+          "torch": 5.451420783996582
+        },
+        "loss_binary_maps": {
+          "abs": 1.2516975402832031e-06,
+          "paddle": 0.6924945712089539,
+          "torch": 0.6924933195114136
+        },
+        "loss_cbn": {
+          "abs": 0.0,
+          "paddle": 0.0,
+          "torch": 0.0
+        },
+        "loss_shrink_maps": {
+          "abs": 7.152557373046875e-06,
+          "paddle": 3.481121301651001,
+          "torch": 3.481114149093628
+        },
+        "loss_threshold_maps": {
+          "abs": 3.5762786865234375e-07,
+          "paddle": 1.2778137922286987,
+          "torch": 1.27781343460083
+        }
+      },
+      "maps": {
+        "all": {
+          "mae": 1.917901166730692e-06,
+          "max_abs": 0.0012473762035369873,
+          "relative_l2": 5.2894060066359844e-05,
+          "shape": [
+            2,
+            3,
+            64,
+            64
+          ]
+        },
+        "binary": {
+          "mae": 1.8213482909466718e-06,
+          "max_abs": 0.0012473762035369873,
+          "relative_l2": 9.566703654161982e-05,
+          "shape": [
+            2,
+            64,
+            64
+          ]
+        },
+        "shrink": {
+          "mae": 2.109016602035668e-06,
+          "max_abs": 0.00019299983978271484,
+          "relative_l2": 3.226202996938045e-05,
+          "shape": [
+            2,
+            64,
+            64
+          ]
+        },
+        "threshold": {
+          "mae": 1.8233386072097346e-06,
+          "max_abs": 1.7702579498291016e-05,
+          "relative_l2": 6.150725688462596e-06,
+          "shape": [
+            2,
+            64,
+            64
+          ]
+        }
+      }
+    }
+  },
+  "paddle_weights": "/home/heqi/project/PaddleOCR/weights/PP-OCRv5_mobile_det_pretrained.pdparams",
+  "paddle_weights_sha256": "7e2e3b0bd5bbdcb0b842cb92aaacc2852f80299a4858b8767a45bd0c6e955648",
+  "seed": 20260806,
+  "targets_sha256": "b40f02eefdeeeade577e0cb265a7929de004bb809e30cd67f260be5d2e24214f",
+  "task": "det",
+  "torch_weights": "/home/heqi/project/PaddleOCR/weights/ptocr_v5_mobile_det.pth",
+  "torch_weights_sha256": "d5013fadb085acfac1ed29dcd3106ccc4beca24e31e92258f0b6ee2b793904d3"
+}

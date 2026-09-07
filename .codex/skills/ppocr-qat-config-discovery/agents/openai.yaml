@@ -1,0 +1,4 @@
+interface:
+  display_name: "PP-OCR QAT 配置发现"
+  short_description: "从 det/rec FX 图生成并检查 8/16-bit Axera QAT 配置"
+  default_prompt: "Use $ppocr-qat-config-discovery to regenerate the current PP-OCR det or rec QAT config from its FX graph."

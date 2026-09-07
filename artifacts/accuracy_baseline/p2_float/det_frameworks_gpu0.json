@@ -1,0 +1,129 @@
+{
+  "batch_size": 1,
+  "behavior_vs_paddle": {
+    "pytorchocr": {
+      "agreement": 0.39,
+      "box_count_agreement": 0.812,
+      "coordinate_agreement_atol_1px": 0.4802955665024631,
+      "coordinate_comparable_samples": 406,
+      "first_mismatch_index": 0,
+      "max_coordinate_abs": 1157.0,
+      "sample_count": 500
+    },
+    "route2": {
+      "agreement": 0.962,
+      "box_count_agreement": 0.982,
+      "coordinate_agreement_atol_1px": 0.9796334012219959,
+      "coordinate_comparable_samples": 491,
+      "first_mismatch_index": 37,
+      "max_coordinate_abs": 9.0,
+      "sample_count": 500
+    }
+  },
+  "command": [
+    "tools/compare_float_frameworks.py",
+    "det",
+    "--paddle-config",
+    "/home/heqi/project/PaddleOCR/configs/det/PP-OCRv5/PP-OCRv5_mobile_det.yml",
+    "--route-config",
+    "configs/det/PP-OCRv5/PP-OCRv5_mobile_det.yml",
+    "--paddle-weights",
+    "PP-OCRv5_mobile_det_pretrained.pdparams",
+    "--torch-weights",
+    "ptocr_v5_mobile_det.pth",
+    "--data-dir",
+    "/home/heqi/dataset/icdr",
+    "--label-file",
+    "/home/heqi/dataset/icdr/test_icdar2015_label.txt",
+    "--output",
+    "artifacts/accuracy_baseline/p2_float/det_frameworks_gpu0.json",
+    "--device",
+    "cuda:0",
+    "--workers",
+    "2",
+    "--batch-size",
+    "1"
+  ],
+  "device": "cuda:0",
+  "elapsed_seconds": 64.35329914093018,
+  "environment": {
+    "numpy": "1.26.4",
+    "paddle": "3.0.0",
+    "python": "3.10.20",
+    "torch": "2.6.0+cu124"
+  },
+  "git": {
+    "commit": "c05307fbd61e575d55f0fef0334026c7536aec76",
+    "dirty": true
+  },
+  "input_source": "PaddleOCR official Eval dataloader",
+  "inputs": {
+    "label_file": {
+      "path": "/home/heqi/dataset/icdr/test_icdar2015_label.txt",
+      "sha256": "07a7dafd27fe0b4e10ba37568ccaa524b716efca3b123ebc4f7cf87e418aeb96"
+    },
+    "paddle_config": {
+      "path": "/home/heqi/project/PaddleOCR/configs/det/PP-OCRv5/PP-OCRv5_mobile_det.yml",
+      "sha256": "18eb66497f683bf4c86e991ba8c02c55fe8ddf7a1aa3ff94ceaf271e89bceba9"
+    },
+    "paddle_weights": {
+      "path": "/home/heqi/project/PaddleOCR/route2/PaddleOCR2Pytorch-QAT/PP-OCRv5_mobile_det_pretrained.pdparams",
+      "sha256": "7e2e3b0bd5bbdcb0b842cb92aaacc2852f80299a4858b8767a45bd0c6e955648"
+    },
+    "route_config": {
+      "path": "/home/heqi/project/PaddleOCR/route2/PaddleOCR2Pytorch-QAT/configs/det/PP-OCRv5/PP-OCRv5_mobile_det.yml",
+      "sha256": "43615d0e37a237cb5c8af228c3cccdd0744adf92dad8be3514bfa768bb877012"
+    },
+    "torch_weights": {
+      "path": "/home/heqi/project/PaddleOCR/route2/PaddleOCR2Pytorch-QAT/ptocr_v5_mobile_det.pth",
+      "sha256": "d5013fadb085acfac1ed29dcd3106ccc4beca24e31e92258f0b6ee2b793904d3"
+    }
+  },
+  "metric_source": "PaddleOCR official metric",
+  "postprocess_source": "PaddleOCR official postprocess",
+  "pytorchocr_load_status": "strict_all_parameters",
+  "sample_count": 500,
+  "task": "det",
+  "task_metrics": {
+    "paddle": {
+      "hmean": 0.4196026490066225,
+      "precision": 0.4664310954063604,
+      "recall": 0.3813192103996148
+    },
+    "pytorchocr": {
+      "hmean": 0.41404805914972276,
+      "precision": 0.4584795321637427,
+      "recall": 0.37746750120365913
+    },
+    "route2": {
+      "hmean": 0.4193804606830818,
+      "precision": 0.46588235294117647,
+      "recall": 0.3813192103996148
+    }
+  },
+  "tensor_difference_vs_paddle": {
+    "pytorchocr": {
+      "raw": {
+        "count": 482816000,
+        "mae": 0.00013382877785191367,
+        "max_abs": 0.9631467200815678,
+        "p99": 1.4053514888701104e-07,
+        "p99_sample_count": 2048000,
+        "worst_sample_index": 306,
+        "worst_sample_max_abs": 0.9631467200815678
+      }
+    },
+    "route2": {
+      "raw": {
+        "count": 482816000,
+        "mae": 2.253395279241694e-06,
+        "max_abs": 0.04023507237434387,
+        "p99": 2.6493603400012965e-09,
+        "p99_sample_count": 2048000,
+        "worst_sample_index": 479,
+        "worst_sample_max_abs": 0.04023507237434387
+      }
+    }
+  },
+  "workers": 2
+}

@@ -1,0 +1,72 @@
+{
+  "input": "onnx/ppocrv6_small_rec_exp22a_final_qat_qdq.onnx",
+  "output_dir": "./output/exp22a_final_rec",
+  "model_type": "QuantONNX",
+  "target_hardware": "AX650",
+  "npu_mode": "NPU3",
+  "quant": {
+    "input_configs": [
+      {
+        "tensor_name": "images",
+        "calibration_dataset": "/data/shared/heqi/self-developed/qat-ppocr/input/calib_rec.zip",
+        "calibration_size": 32,
+        "calibration_format": "Image",
+        "calibration_mean": [],
+        "calibration_std": []
+      }
+    ],
+    "layer_configs": [
+      {
+        "layer_names": [
+          "op_6:onnx.FullyConnected",
+          "op_10:onnx.FullyConnected"
+        ],
+        "output_data_type": "S8"
+      },
+      {
+        "layer_names": [
+          "node_MatMul_1104",
+          "node_Softmax_1110",
+          "node_MatMul_1274",
+          "node_Softmax_1280"
+        ],
+        "data_type": "S8",
+        "output_data_type": "S8"
+      },
+      {
+        "layer_names": [
+          "node_MatMul_1121",
+          "node_MatMul_1291"
+        ],
+        "data_type": "S8"
+      }
+    ],
+    "conv_bias_data_type": "FP32",
+    "precision_analysis": true,
+    "precision_analysis_method": "PerLayer",
+    "precision_analysis_mode": "NPUBackend"
+
+  },
+  "input_processors": [
+    {
+      "tensor_name": "images",
+      "tensor_layout": "NCHW",
+      "src_layout": "NCHW",
+      "src_dtype": "FP32",
+      "mean": [
+        0,
+        0,
+        0
+      ],
+      "std": [
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "output_processors": [],
+  "compiler": {
+    "check": 0
+  }
+}

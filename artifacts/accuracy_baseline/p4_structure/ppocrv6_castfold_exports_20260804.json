@@ -1,0 +1,51 @@
+{
+  "artifact_kind": "structure_smoke_not_accuracy_baseline",
+  "export_cleanup": {
+    "name": "constant_zero_point_cast_fold",
+    "scope": "integer initializer Casts consumed only as QuantizeLinear/DequantizeLinear zero-point input 2",
+    "requires_exact_integer_conversion": true,
+    "batch_tested": true
+  },
+  "recognition": {
+    "path": "/home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv6_small_rec_reparameterized_qat_smoke_20260804_castfold.onnx",
+    "sha256": "0839f55fade49cf1a3a22007733648266df83aa91c86d1950c669cb52f3ec1d0",
+    "input_shape": [1, 3, 48, 320],
+    "output_shape": [1, 40, 18710],
+    "nodes": 681,
+    "cast": 0,
+    "batch_normalization": 0,
+    "quantize_linear": 161,
+    "dequantize_linear": 280,
+    "redundant_dq_q": 0,
+    "requantize_dq_q": 2,
+    "unquantized_conv_outputs": [],
+    "concat_quantized_shared": [1, 1],
+    "hard_activation_quantized_total": [5, 5],
+    "qdq_validation": "pass",
+    "ort_optimize_off_finite": true,
+    "castfold_vs_previous_mae": 0.0,
+    "castfold_vs_previous_max_abs": 0.0,
+    "ort_optimize_on_vs_off_mae": 0.4238455891609192,
+    "ort_optimize_on_vs_off_max_abs": 3.73557448387146
+  },
+  "detection": {
+    "path": "/home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv6_small_det_reparameterized_qat_smoke_20260804_castfold.onnx",
+    "sha256": "f0f0c6268d05e05bfb04ec2aecb3b13bfb85ca8917d6c7dc1ba055fb4d1a0d30",
+    "input_shape": [1, 3, 640, 640],
+    "output_shape": [1, 1, 640, 640],
+    "nodes": 761,
+    "cast": 0,
+    "batch_normalization": 0,
+    "quantize_linear": 177,
+    "dequantize_linear": 335,
+    "redundant_dq_q": 0,
+    "requantize_dq_q": 0,
+    "unquantized_conv_outputs": [],
+    "concat_quantized_shared": [2, 2],
+    "hard_activation_quantized_total": [13, 13],
+    "qdq_validation": "pass",
+    "ort_optimize_off_finite": true,
+    "ort_optimize_on_vs_off_mae": 0.00037362895091064274,
+    "ort_optimize_on_vs_off_max_abs": 0.007842695340514183
+  }
+}
