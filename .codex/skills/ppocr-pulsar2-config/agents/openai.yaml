@@ -1,0 +1,4 @@
+interface:
+  display_name: "PP-OCR 通用 Pulsar2 配置"
+  short_description: "从 QuantONNX 生成并校验通用 Pulsar2 配置"
+  default_prompt: "Use $ppocr-pulsar2-config to generate and validate a generic Pulsar2 config for this QuantONNX."

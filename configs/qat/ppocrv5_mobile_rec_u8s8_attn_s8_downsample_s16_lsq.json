@@ -1,0 +1,228 @@
+{
+  "global_config": {
+    "is_symmetric": false,
+    "input": {
+      "dtype": "U8",
+      "qmin": 0,
+      "qmax": 255
+    },
+    "weight": {
+      "dtype": "S8",
+      "qmin": -127,
+      "qmax": 127
+    }
+  },
+  "regional_configs": [
+    {
+      "module_names": [
+        "linear",
+        "linear_4"
+      ],
+      "module_type": "linear",
+      "module_config": {
+        "is_symmetric": false,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "U8",
+          "qmin": 0,
+          "qmax": 255
+        },
+        "output": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "weight": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "mul_352",
+        "mul_353",
+        "mul_60",
+        "mul_61",
+        "mul_58",
+        "mul_59"
+      ],
+      "module_type": "mul",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "output": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "matmul",
+        "matmul_2"
+      ],
+      "module_type": "matmul",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "output": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "softmax",
+        "softmax_1"
+      ],
+      "module_type": "softmax",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "output": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        }
+      }
+    },
+    {
+      "module_names": [
+        "matmul_1",
+        "matmul_3"
+      ],
+      "module_type": "matmul",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": false,
+        "input": {
+          "dtype": "S8",
+          "qmin": -127,
+          "qmax": 127
+        },
+        "output": {
+          "dtype": "U8",
+          "qmin": 0,
+          "qmax": 255
+        }
+      }
+    },
+    {
+      "module_names": [
+        "conv2d_29",
+        "conv2d_30",
+        "conv2d_31",
+        "conv2d_32"
+      ],
+      "module_type": "conv",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "S16",
+          "qmin": -32767,
+          "qmax": 32767
+        },
+        "output": {
+          "dtype": "S16",
+          "qmin": -32767,
+          "qmax": 32767
+        },
+        "weight": {
+          "dtype": "S16",
+          "qmin": -32767,
+          "qmax": 32767
+        }
+      }
+    },
+    {
+      "module_names": [
+        "mul_50",
+        "mul_51",
+        "mul_52",
+        "mul_53",
+        "mul_54",
+        "mul_55",
+        "mul_56",
+        "mul_57"
+      ],
+      "module_type": "mul",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "S16",
+          "qmin": -32767,
+          "qmax": 32767
+        },
+        "output": {
+          "dtype": "S16",
+          "qmin": -32767,
+          "qmax": 32767
+        }
+      }
+    },
+    {
+      "module_names": [
+        "add_48",
+        "add_49",
+        "add_50",
+        "add_51",
+        "add_52",
+        "add_53",
+        "add_54",
+        "add_55"
+      ],
+      "module_type": "add",
+      "module_config": {
+        "is_symmetric": true,
+        "output_is_symmetric": true,
+        "input": {
+          "dtype": "S16",
+          "qmin": -32767,
+          "qmax": 32767
+        },
+        "output": {
+          "dtype": "S16",
+          "qmin": -32767,
+          "qmax": 32767
+        }
+      }
+    },
+    {
+      "module_names": [
+        "adaptive_avg_pool2d_2"
+      ],
+      "module_type": "avgpool2d",
+      "module_config": {
+        "is_symmetric": true,
+        "input": {
+          "dtype": "S16",
+          "qmin": -32767,
+          "qmax": 32767
+        }
+      }
+    }
+  ],
+  "lsq": true
+}

@@ -1,0 +1,81 @@
+{
+  "input": "/home/heqi/project/PaddleOCR/tmp/route2_qat_exports/ppocrv5_mobile_rec_attn_s8_keep_u8_requant_smoke_20260804.onnx",
+  "output_dir": "artifacts/pulsar2/ppocrv5_mobile_rec_attn_s8_smoke_20260804",
+  "model_type": "QuantONNX",
+  "target_hardware": "AX650",
+  "npu_mode": "NPU3",
+  "quant": {
+    "input_configs": [
+      {
+        "tensor_name": "DEFAULT",
+        "calibration_dataset": "/path/to/dataset"
+      }
+    ],
+    "layer_configs": [
+      {
+        "layer_names": [
+          "node_Add_1586",
+          "node_Add_1767"
+        ],
+        "output_data_type": "S8"
+      },
+      {
+        "layer_names": [
+          "node_Reshape_1599",
+          "node_Transpose_1604",
+          "node_Gather_1614",
+          "node_Mul_1622",
+          "node_Gather_1629",
+          "node_Gather_1635",
+          "node_Transpose_1640",
+          "node_MatMul_1645",
+          "node_Softmax_1651",
+          "node_Reshape_1780",
+          "node_Transpose_1785",
+          "node_Gather_1794",
+          "node_Mul_1801",
+          "node_Gather_1807",
+          "node_Gather_1812",
+          "node_Transpose_1817",
+          "node_MatMul_1822",
+          "node_Softmax_1828"
+        ],
+        "data_type": "S8",
+        "output_data_type": "S8"
+      },
+      {
+        "layer_names": [
+          "node_MatMul_1662",
+          "node_MatMul_1839"
+        ],
+        "data_type": "S8"
+      }
+    ],
+    "conv_bias_data_type": "FP32",
+    "precision_analysis": true,
+    "precision_analysis_method": "PerLayer",
+    "precision_analysis_mode": "NPUBackend"
+  },
+  "input_processors": [
+    {
+      "tensor_name": "DEFAULT",
+      "tensor_layout": "NCHW",
+      "src_layout": "NCHW",
+      "src_dtype": "FP32",
+      "mean": [
+        0,
+        0,
+        0
+      ],
+      "std": [
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "output_processors": [],
+  "compiler": {
+    "check": 2
+  }
+}

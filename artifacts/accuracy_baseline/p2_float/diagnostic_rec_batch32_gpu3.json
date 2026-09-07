@@ -1,0 +1,74 @@
+{
+  "device": "cuda:3",
+  "elapsed_seconds": 105.99603390693665,
+  "input_source": "PaddleOCR official Eval dataloader",
+  "metric_source": "PaddleOCR official metric",
+  "postprocess_source": "PaddleOCR official postprocess",
+  "pytorchocr_load_status": "strict_ctc_path_gtc_excluded",
+  "sample_count": 2077,
+  "task": "rec",
+  "task_metrics": {
+    "paddle": {
+      "acc": 0.5936446769684897,
+      "norm_edit_dis": 0.8170570344159308
+    },
+    "pytorchocr": {
+      "acc": 0.5936446769684897,
+      "norm_edit_dis": 0.816992839262974
+    },
+    "route2": {
+      "acc": 0.5936446769684897,
+      "norm_edit_dis": 0.816992839262974
+    }
+  },
+  "tensor_difference_vs_paddle": {
+    "pytorchocr": {
+      "argmax_agreement": 0.9999277804525758,
+      "centered_logits": {
+        "count": 1527425800,
+        "mae": 0.0016098986824594301,
+        "max_abs": 0.7594184875488281,
+        "p99": 0.010914640426635702,
+        "p99_sample_count": 266240
+      },
+      "probability": {
+        "count": 1527425800,
+        "mae": 1.2296154893898083e-08,
+        "max_abs": 0.20756390690803528,
+        "p99": 1.90436821867479e-09,
+        "p99_sample_count": 266240
+      },
+      "raw": {
+        "count": 1527425800,
+        "mae": 0.00401456215074319,
+        "max_abs": 1.2223825454711914,
+        "p99": 0.028588228225707835,
+        "p99_sample_count": 266240
+      }
+    },
+    "route2": {
+      "argmax_agreement": 0.9999277804525758,
+      "centered_logits": {
+        "count": 1527425800,
+        "mae": 0.0016098986824594301,
+        "max_abs": 0.7594184875488281,
+        "p99": 0.010914640426635702,
+        "p99_sample_count": 266240
+      },
+      "probability": {
+        "count": 1527425800,
+        "mae": 1.2296154893898083e-08,
+        "max_abs": 0.20756390690803528,
+        "p99": 1.90436821867479e-09,
+        "p99_sample_count": 266240
+      },
+      "raw": {
+        "count": 1527425800,
+        "mae": 0.00401456215074319,
+        "max_abs": 1.2223825454711914,
+        "p99": 0.028588228225707835,
+        "p99_sample_count": 266240
+      }
+    }
+  }
+}

@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "generator": "ppocrv5-rec-pulsar2-config",
+  "onnx": {
+    "path": "/home/heqi/project/PaddleOCR/exports/quantonnx/exp14_u8s8_noreparam/ppocrv5_mobile_rec_exp14_u8s8_noreparam_qdq.onnx",
+    "sha256": "bfe347c706913e8adb36338cf9aa5509f61cf426509ce2a1fab076e814c67310",
+    "inputs": [
+      {
+        "name": "images",
+        "shape": [
+          1,
+          3,
+          48,
+          320
+        ],
+        "dtype": "FLOAT"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "logits",
+        "shape": [
+          1,
+          40,
+          18385
+        ],
+        "dtype": "FLOAT"
+      }
+    ],
+    "nodes": 1796,
+    "quantize_linear": 505,
+    "dequantize_linear": 760,
+    "activation_zero_point_dtypes": {
+      "S8": 20,
+      "U8": 485
+    },
+    "attention": [
+      {
+        "qkv_output": "node_Add_3705",
+        "core": [
+          "node_Reshape_3718",
+          "node_Transpose_3723",
+          "node_Gather_3733",
+          "node_Mul_3741",
+          "node_Gather_3748",
+          "node_Gather_3754",
+          "node_Transpose_3759",
+          "node_MatMul_3764",
+          "node_Softmax_3770"
+        ],
+        "first_matmul": "node_MatMul_3764",
+        "softmax": "node_Softmax_3770",
+        "second_matmul": "node_MatMul_3781",
+        "dtypes": {
+          "qkv_output": "S8",
+          "first_matmul_inputs": [
+            "S8",
+            "S8"
+          ],
+          "first_matmul_output": "S8",
+          "softmax_output": "S8",
+          "second_matmul_inputs": [
+            "S8",
+            "S8"
+          ],
+          "second_matmul_output": "U8"
+        }
+      },
+      {
+        "qkv_output": "node_Add_3879",
+        "core": [
+          "node_Reshape_3892",
+          "node_Transpose_3897",
+          "node_Gather_3906",
+          "node_Mul_3913",
+          "node_Gather_3919",
+          "node_Gather_3924",
+          "node_Transpose_3929",
+          "node_MatMul_3934",
+          "node_Softmax_3940"
+        ],
+        "first_matmul": "node_MatMul_3934",
+        "softmax": "node_Softmax_3940",
+        "second_matmul": "node_MatMul_3951",
+        "dtypes": {
+          "qkv_output": "S8",
+          "first_matmul_inputs": [
+            "S8",
+            "S8"
+          ],
+          "first_matmul_output": "S8",
+          "softmax_output": "S8",
+          "second_matmul_inputs": [
+            "S8",
+            "S8"
+          ],
+          "second_matmul_output": "U8"
+        }
+      }
+    ],
+    "requants": [
+      {
+        "dequantize": "node_DequantizeLinear_3639",
+        "identity": "node_DequantizeLinear_3639_to_node_QuantizeLinear_3645_identity",
+        "quantize": "node_QuantizeLinear_3645",
+        "from": {
+          "dtype": "U8",
+          "scale": 0.9586046934127808,
+          "zero_point": 2
+        },
+        "to": {
+          "dtype": "U8",
+          "scale": 0.7940036058425903,
+          "zero_point": 2
+        }
+      }
+    ],
+    "silu": {
+      "total": 7,
+      "quantized": 7,
+      "internal_qdq": 0,
+      "patterns": [
+        {
+          "sigmoid": "node_Sigmoid_3658",
+          "mul": "node_Mul_3659",
+          "input_dequantize": "node_DequantizeLinear_3657",
+          "output_quantize": "node_QuantizeLinear_3662",
+          "boundary_quantized": true,
+          "internal_qdq": false
+        },
+        {
+          "sigmoid": "node_Sigmoid_3673",
+          "mul": "node_Mul_3674",
+          "input_dequantize": "node_DequantizeLinear_3672",
+          "output_quantize": "node_QuantizeLinear_3677",
+          "boundary_quantized": true,
+          "internal_qdq": false
+        },
+        {
+          "sigmoid": "node_Sigmoid_3838",
+          "mul": "node_Mul_3839",
+          "input_dequantize": "node_DequantizeLinear_3837",
+          "output_quantize": "node_QuantizeLinear_3842",
+          "boundary_quantized": true,
+          "internal_qdq": false
+        },
+        {
+          "sigmoid": "node_Sigmoid_4008",
+          "mul": "node_Mul_4009",
+          "input_dequantize": "node_DequantizeLinear_4007",
+          "output_quantize": "node_QuantizeLinear_4012",
+          "boundary_quantized": true,
+          "internal_qdq": false
+        },
+        {
+          "sigmoid": "node_Sigmoid_4069",
+          "mul": "node_Mul_4070",
+          "input_dequantize": "node_DequantizeLinear_4068",
+          "output_quantize": "node_QuantizeLinear_4072",
+          "boundary_quantized": true,
+          "internal_qdq": false
+        },
+        {
+          "sigmoid": "node_Sigmoid_4088",
+          "mul": "node_Mul_4089",
+          "input_dequantize": "node_DequantizeLinear_4087",
+          "output_quantize": "node_QuantizeLinear_4092",
+          "boundary_quantized": true,
+          "internal_qdq": false
+        },
+        {
+          "sigmoid": "node_Sigmoid_4103",
+          "mul": "node_Mul_4104",
+          "input_dequantize": "node_DequantizeLinear_4102",
+          "output_quantize": "node_QuantizeLinear_4107",
+          "boundary_quantized": true,
+          "internal_qdq": false
+        }
+      ]
+    }
+  },
+  "pulsar2": {
+    "config": "/home/heqi/project/PaddleOCR/artifacts/pulsar2/exp14_u8s8_noreparam/ppocrv5_mobile_rec_exp14_u8s8.json",
+    "config_sha256": "de740bb9403e6c4f373ef790094563fd0b577199055d906c72b1119af79906c0",
+    "target_hardware": "AX650",
+    "npu_mode": "NPU3"
+  },
+  "preprocessing": {
+    "location": "host",
+    "resize": "preserve aspect ratio to height 48",
+    "padding": "right zero padding to width 320",
+    "normalization": "[-1, 1] before Pulsar2 FP32/NCHW identity processor",
+    "channel_order": "BGR (OpenCV route2 preprocessing contract)"
+  }
+}

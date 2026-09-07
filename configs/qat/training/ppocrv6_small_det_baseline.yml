@@ -1,0 +1,20 @@
+name: ppocrv6-small-det-qat-baseline
+task: det
+model_name: PP-OCRv6_small_det
+qat: true
+qat_config: ../ppocrv6_small_det_u8s8.json
+training:
+  epochs: 50
+  batch_size: 8
+  workers: 8
+  optimizer: AdamW
+  learning_rate: 0.00002
+  keep_bn: true
+  image_shape: [3, 640, 640]
+  augmentation: none
+  amp: false
+  reparameterize: true
+  warmup_epochs: 2
+  lr_final_factor: 0.1
+  observer_freeze_epoch: null
+  save_every: 1

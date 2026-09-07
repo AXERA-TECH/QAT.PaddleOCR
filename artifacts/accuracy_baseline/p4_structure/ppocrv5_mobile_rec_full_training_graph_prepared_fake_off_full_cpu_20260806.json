@@ -1,0 +1,37 @@
+{
+  "contract": "full pretrained_train graph; no activation observer calibration; prepared fake-off",
+  "graph_role": "pretrained_train",
+  "wrapper": "FullRecTrainingWrapper",
+  "sample_count": 256,
+  "input_shapes": {
+    "images": [
+      64,
+      3,
+      48,
+      320
+    ],
+    "gtc_targets": [
+      64,
+      25
+    ]
+  },
+  "nodes": {
+    "exported": 2129,
+    "prepared": 4136
+  },
+  "outputs": [
+    "ctc",
+    "ctc_neck",
+    "gtc"
+  ],
+  "finite": {
+    "prepared_fake_off_training_graph": true
+  },
+  "metrics": {
+    "prepared_fake_off_training_graph": {
+      "acc": 0.6640625,
+      "norm_edit_dis": 0.8566886780753968
+    }
+  },
+  "comparisons": {}
+}

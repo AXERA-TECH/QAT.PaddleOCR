@@ -1,0 +1,177 @@
+{
+  "generated_at": "2026-08-07",
+  "capture_device": "cpu",
+  "execution_device": "cuda:0",
+  "reparameterized": true,
+  "graph_role": "pretrained_train",
+  "models": {
+    "ppocrv5_mobile_rec": {
+      "input_names": [
+        "images",
+        "gtc_targets"
+      ],
+      "output_names": [
+        "ctc",
+        "ctc_neck",
+        "gtc"
+      ],
+      "hardcoded_cpu_device_count": 0,
+      "outputs": [
+        {
+          "name": "ctc",
+          "shape": [
+            1,
+            40,
+            18385
+          ],
+          "device": "cuda:0",
+          "finite": true
+        },
+        {
+          "name": "ctc_neck",
+          "shape": [
+            1,
+            40,
+            120
+          ],
+          "device": "cuda:0",
+          "finite": true
+        },
+        {
+          "name": "gtc",
+          "shape": [
+            1,
+            24,
+            18389
+          ],
+          "device": "cuda:0",
+          "finite": true
+        }
+      ]
+    },
+    "ppocrv5_mobile_det": {
+      "input_names": [
+        "images"
+      ],
+      "output_names": [
+        "maps"
+      ],
+      "hardcoded_cpu_device_count": 0,
+      "outputs": [
+        {
+          "name": "maps",
+          "shape": [
+            1,
+            3,
+            640,
+            640
+          ],
+          "device": "cuda:0",
+          "finite": true
+        }
+      ]
+    },
+    "ppocrv6_small_rec": {
+      "input_names": [
+        "images",
+        "gtc_targets"
+      ],
+      "output_names": [
+        "ctc",
+        "ctc_neck",
+        "gtc"
+      ],
+      "hardcoded_cpu_device_count": 0,
+      "outputs": [
+        {
+          "name": "ctc",
+          "shape": [
+            1,
+            40,
+            18710
+          ],
+          "device": "cuda:0",
+          "finite": true
+        },
+        {
+          "name": "ctc_neck",
+          "shape": [
+            1,
+            40,
+            120
+          ],
+          "device": "cuda:0",
+          "finite": true
+        },
+        {
+          "name": "gtc",
+          "shape": [
+            1,
+            24,
+            18714
+          ],
+          "device": "cuda:0",
+          "finite": true
+        }
+      ]
+    },
+    "ppocrv6_small_det": {
+      "input_names": [
+        "images"
+      ],
+      "output_names": [
+        "maps",
+        "aux_maps_p4",
+        "aux_maps_p3",
+        "aux_maps_p2"
+      ],
+      "hardcoded_cpu_device_count": 0,
+      "outputs": [
+        {
+          "name": "maps",
+          "shape": [
+            1,
+            3,
+            640,
+            640
+          ],
+          "device": "cuda:0",
+          "finite": true
+        },
+        {
+          "name": "aux_maps_p4",
+          "shape": [
+            1,
+            3,
+            640,
+            640
+          ],
+          "device": "cuda:0",
+          "finite": true
+        },
+        {
+          "name": "aux_maps_p3",
+          "shape": [
+            1,
+            3,
+            640,
+            640
+          ],
+          "device": "cuda:0",
+          "finite": true
+        },
+        {
+          "name": "aux_maps_p2",
+          "shape": [
+            1,
+            3,
+            640,
+            640
+          ],
+          "device": "cuda:0",
+          "finite": true
+        }
+      ]
+    }
+  }
+}

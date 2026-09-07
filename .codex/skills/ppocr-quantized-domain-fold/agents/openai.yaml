@@ -1,0 +1,4 @@
+interface:
+  display_name: "PP-OCR 量化域折叠"
+  short_description: "非重参化 QAT checkpoint → 量化域折叠 → 折叠模型 finetune"
+  default_prompt: "Use $ppocr-quantized-domain-fold to fold a non-reparameterized QAT checkpoint into a quantized-domain single-branch state and finetune it."

@@ -1,0 +1,35 @@
+{
+  "batch_size": 128,
+  "device": "cuda:3",
+  "eager_vs_reparameterized": {
+    "count": 1527425800,
+    "mae": 0.000239343454222211,
+    "max_abs": 0.011271476745605469,
+    "p99": 0.002094268798828125,
+    "p99_sample_count": 69632,
+    "worst_sample_index": 1551,
+    "worst_sample_max_abs": 0.011271476745605469
+  },
+  "recognition_equivalence": {
+    "argmax_agreement": 1.0,
+    "centered_logits": {
+      "mae": 7.296807626637249e-05,
+      "max_abs": 0.0064697265625
+    },
+    "ctc_sequence_agreement": 1.0,
+    "logits": {
+      "mae": 0.0002393434543186975,
+      "max_abs": 0.011271476745605469
+    },
+    "probabilities": {
+      "mae": 1.6563072890406613e-10,
+      "max_abs": 0.0016836225986480713
+    }
+  },
+  "sample_count": 2077,
+  "task": "rec",
+  "torch_tf32": {
+    "cudnn": false,
+    "matmul": false
+  }
+}

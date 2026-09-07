@@ -1,0 +1,21 @@
+Global:
+  model_name: PP-OCRv5_server_det
+  d2s_train_image_shape: [3, 640, 640]
+Architecture:
+  model_type: det
+  algorithm: DB
+  Transform: null
+  Backbone:
+    name: PPHGNetV2_B4
+    det: true
+  Neck:
+    name: LKPAN
+    out_channels: 256
+    intracl: true
+  Head:
+    name: PFHeadLocal
+    k: 50
+    mode: large
+Metric:
+  name: DetMetric
+  main_indicator: hmean

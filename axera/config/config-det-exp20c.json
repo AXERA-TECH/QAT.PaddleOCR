@@ -1,0 +1,31 @@
+{
+  "input": "onnx/ppocrv6_small_det_exp20c_u8s8_keep_bn_qdq.onnx",
+  "output_dir": "./output/exp20c_ppocrv6_small_det_u8s8_keep_bn",
+  "model_type": "QuantONNX",
+  "target_hardware": "AX650",
+  "npu_mode": "NPU1",
+  "quant": {
+    "input_configs": [
+      {
+        "tensor_name": "input_0",
+        "calibration_dataset": "/path/to/dataset"
+      }
+    ],
+    "conv_bias_data_type": "FP32",
+    "precision_analysis": false
+  },
+  "input_processors": [
+    {
+      "tensor_name": "input_0",
+      "tensor_layout": "NCHW",
+      "src_layout": "NCHW",
+      "src_dtype": "FP32",
+      "mean": [0, 0, 0],
+      "std": [1, 1, 1]
+    }
+  ],
+  "output_processors": [],
+  "compiler": {
+    "check": 0
+  }
+}
