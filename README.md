@@ -67,7 +67,7 @@ python -m pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/
 python -m pip install -r requirements-qat.txt
 ```
 
-## 2. 数据准备要求
+## 2. 数据准备
 
 默认用户已经完成数据下载、解压和标注转换。训练和验证数据需整理为 PaddleOCR 标注格式，并将路径
 传给后续命令：
@@ -100,7 +100,7 @@ v6-det 默认使用 PaddleOCR 固定输入尺寸 resize、polygon 同步缩放�
 复现本项目的居中 letterbox 实验，可在训练/评估命令中增加 `--det-preprocess letterbox`。
 QuantONNX 部署输入固定为 batch 1。
 
-## 3. PP-OCRv6 Small Rec 端到端复现
+## 3. PP-OCRv6 Small Rec QAT
 
 这是当前推荐主线。下面的命令依次完成 Paddle 权重转换、浮点微调、QAT、QuantONNX 和 ORT 评估。
 
@@ -159,7 +159,7 @@ python3 -c 'import sys, torch; checkpoint = torch.load(sys.argv[1], map_location
   weights/ptocr_v6_small_rec_float_best.pth
 ```
 
-### 3.3 QAT 复现
+### 3.3 QAT
 
 从同一浮点权重重新启动正式 run，不从门禁 checkpoint 续训：
 
@@ -341,7 +341,7 @@ python3 -c 'import sys, torch; checkpoint = torch.load(sys.argv[1], map_location
   weights/ptocr_v6_small_det_float_best.pth
 ```
 
-### 4.3 检测 QAT 复现
+### 4.3 QAT
 
 使用仓库已验证的 U8/S8 QAT 配置，从浮点微调权重重新启动 QAT。训练过程中每个 epoch 执行验证，
 并根据 hmean 更新 `best.pt`：
@@ -427,3 +427,13 @@ python3 tools/recompute_det_bins.py ... --det-preprocess letterbox
 
 完整的 QuantONNX → Pulsar2 → AXModel → 板端精度验证流程见
 [Axera 部署与板端精度验证指南](axera/README.md)。
+
+## 参考与致谢
+
+- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)
+- [PaddleOCR2Pytorch](https://github.com/frotms/PaddleOCR2Pytorch)
+- [PytorchOCR](https://github.com/WenmuZhou/PytorchOCR)
+- [QARepVGG](https://github.com/cxxgtxy/QARepVGG)
+- [YOLOv6](https://github.com/meituan/YOLOv6)
+- [QAT.Ultralytics.YOLOv5](https://github.com/AXERA-TECH/QAT.Ultralytics.YOLOv5)
+- [QAT.axera](https://github.com/AXERA-TECH/QAT.axera)
