@@ -192,31 +192,52 @@ python3 axera/eval_board_rec.py --help
 
 | 脚本 | 执行位置 | 用途 |
 | --- | --- | --- |
-| `prep_icdr_inputs.py`、`prep_recval_parts.py` | AX650 板端 | 识别验证集预处理和内存分片 |
-| `eval_board_rec.py` | AX650 板端 | 识别 AXModel 推理、CTC 解码和 accuracy |
+| `eval_board_rec.py` | AX650 板端 | 识别输入预处理（自包含）、AXModel 推理、CTC 解码和 accuracy |
 | `eval_board_det.py` | AX650 板端 | 检测 AXModel 推理并保存 shrink map bin；`--vis-dir` 输出叠加框可视化（`--vis-score`、`--no-maps`） |
 
 ### 3.1 识别板端输入和评估
 
-识别输入按模型合同进行等比缩放、右侧 zero padding、`[-1,1]` 归一化，并保存为 FP32 NCHW。板端内存
-有限时必须按固定数量分片，不要一次加载整个验证集。仓库中的
-`axera/prep_icdr_inputs.py` 和 `axera/prep_recval_parts.py` 可用于生成分片输入。
+识别输入按模型合同进行等比缩放、右侧 zero padding、`[-1,1]` 归一化。
+**`eval_board_rec.py` 已内置该预处理**（无需独立预处理脚本）；两种模式：
+
+- **在线模式（默认）**：直接从挂载数据集读图并逐批预处理——板端内存小也能跑
+  （逐批释放），适合数千张量级的验证集（如 ICDR 2077 张）；
+- **分片模式（`--parts-dir`）**：读取预处理好的 npz 分片，在慢速 NFS 或
+  十万张量级（如 rec_val 149,695）时更快。分片可由脚本自身生成：
 
 ```bash
-python3 axera/prep_icdr_inputs.py \
-  /path/to/dataset/rec /path/to/dataset/rec/icdr_parts
+# 可选:先生成分片（在同一数据集上运行,输出目录单独指定）
+python3 axera/eval_board_rec.py \
+  --label-file /path/to/dataset/rec/rec_gt_test.txt \
+  --data-dir /path/to/dataset/rec \
+  --dictionary /path/to/ppocrv6_dict.txt \
+  --make-parts /path/to/rec/icdr_parts --parts-size 500
 
+# 分片模式评估（README 约定接口）
 python3 axera/eval_board_rec.py \
   --axmodel /path/to/compiled.axmodel \
   --texts /path/to/icdr_texts.json \
   --parts-dir /path/to/icdr_parts \
   --dictionary /path/to/ppocrv6_dict.txt \
   --batch-size 1 --use-space-char
+
+# 在线模式评估（自包含预处理,无需 --texts/--parts-dir）
+python3 axera/eval_board_rec.py \
+  --axmodel /path/to/compiled.axmodel \
+  --label-file /path/to/dataset/rec/rec_gt_test.txt \
+  --data-dir /path/to/dataset/rec \
+  --dictionary /path/to/ppocrv6_dict.txt \
+  --batch-size 1 --use-space-char
 ```
 
-v6-rec 使用 `use_space_char: true` 时增加 `--use-space-char`，解码字典的字符列表末尾必须追加空格；
-不使用空格的 v5-rec 字典不要添加该参数。CTC blank 仍为类别 0。
+v6-rec 使用 `use_space_char: true` 时解码字典的字符列表末尾必须追加空格
+（脚本默认 `--use-space-char`）；不使用空格的 v5-rec 字典传
+`--no-use-space-char`。CTC blank 仍为类别 0。
 板端脚本必须与参考评估使用完全相同的字典、预处理、CTC collapse 和文本标准化。
+
+实现细节：标签中的图片路径可为相对路径（相对 `--data-dir`）或绝对路径
+（按 basename 在 `--data-dir` 的 `val/`、`test/`、根目录候选中解析）；
+有 cv2 时用 cv2.resize，无 cv2 时回退 PIL。
 
 ### 3.2 检测板端输入和评估
 
