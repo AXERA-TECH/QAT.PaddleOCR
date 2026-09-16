@@ -243,7 +243,8 @@ ONNX 图优化（`evaluate_onnx.py --ort-optimize`）。两个 acc/指标一并�
 - **编译产物与 QuantONNX 精度对齐**优先使用 `axera/compare_rec_onnx_ax_batch.py` 或
   `axera/compare_det_onnx_ax.py`（复制到 Pulsar2 工具服务器后运行）逐样本对比 axmodel 与 onnx；
   识别比较 CTC logits，检测比较 shrink map，以区分预处理差异、Pulsar2 frontend 优化差异与真实量化损失。
-- 板端评估和输入准备使用 `axera/eval_board_rec.py`、`axera/eval_board_det.py`、
+- 板端评估和输入准备使用 `axera/eval_board_rec.py`、`axera/eval_board_det.py`
+  （`--vis-dir` 输出叠加 DB 框的可视化图、`--vis-score` 叠加分数、`--no-maps` 只出可视化）、
   `axera/prep_icdr_inputs.py` 和 `axera/prep_recval_parts.py`。
 - 上板精度与 ONNX 精度对不齐时，先跑仿真对比（axmodel vs onnx），不要直接推断为训练/量化
   配置问题。

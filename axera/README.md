@@ -194,7 +194,7 @@ python3 axera/eval_board_rec.py --help
 | --- | --- | --- |
 | `prep_icdr_inputs.py`、`prep_recval_parts.py` | AX650 板端 | 识别验证集预处理和内存分片 |
 | `eval_board_rec.py` | AX650 板端 | 识别 AXModel 推理、CTC 解码和 accuracy |
-| `eval_board_det.py` | AX650 板端 | 检测 AXModel 推理并保存 shrink map bin |
+| `eval_board_det.py` | AX650 板端 | 检测 AXModel 推理并保存 shrink map bin；`--vis-dir` 输出叠加框可视化（`--vis-score`、`--no-maps`） |
 
 ### 3.1 识别板端输入和评估
 
@@ -235,6 +235,30 @@ python3 axera/eval_board_det.py \
   --output-dir /path/to/outputBin_detval \
   --det-preprocess paddle
 ```
+
+**结果可视化（可选）**：`--vis-dir` 会在板端直接跑一次 DB 后处理，并把每个样本的检测框叠加图
+写到 `<vis-dir>/<stem>.jpg`，便于快速核对模型行为，无需把 bin 拷回主机：
+
+```bash
+python3 axera/eval_board_det.py \
+  --axmodel /path/to/compiled.axmodel \
+  --image-dir /path/to/det-images \
+  --label-file /path/to/det_val.txt \
+  --output-dir /path/to/outputBin_detval \
+  --vis-dir /path/to/vis_detval --vis-score --det-preprocess paddle
+# 只要可视化、不落 maps.bin: 追加 --no-maps
+```
+
+- 阈值默认取 v6 det 配置（`configs/det/PP-OCRv6/PP-OCRv6_small_det.yml`）：
+  `--vis-thresh 0.2`、`--vis-box-thresh 0.45`、`--vis-unclip-ratio 1.4`、
+  `--vis-max-candidates 3000`，可按数据集覆盖；`--vis-score` 叠加分数文本，
+  `--vis-thickness` 调整线宽。
+- 框提取与 `pytorchocr/postprocess/db_postprocess.py` 一致（相同的 `get_mini_boxes` 排序、
+  `box_score_fast` 打分、最小边 3 / 3+2 过滤）；仅 unclip 用等价的旋转矩形扩张
+  （距离 `area * ratio / perimeter`）替代 pyclipper，因为板端没有 pyclipper/shapely。
+- 框坐标按 `--det-preprocess` 的 scale/offset 严格反向映射回原图（与预处理互逆）。
+- 可视化只用于人工核对；**正式 precision/recall/hmean 仍以导出的 `maps.bin` 在主机按同一
+  DB 参数计算为准**，不要用叠加图反推指标。
 
 板端全量评估需要记录输入样本顺序、输出 bin 对应关系、DB 参数和每个数据集的 precision、recall、
 hmean。不同数据集的 hmean 不得直接相减。
