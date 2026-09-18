@@ -587,6 +587,7 @@ def build_qat_dynamic_shapes(
     *,
     dynamic_batch=False,
     dynamic_heights=None,
+    dynamic_spatial=False,
     batch_aligned_inputs=0,
     max_batch=None,
 ):
@@ -604,6 +605,18 @@ def build_qat_dynamic_shapes(
         else:
             batch_dimension = torch.export.Dim.AUTO
         dimensions[0] = batch_dimension
+
+    if dynamic_heights and dynamic_spatial:
+        raise ValueError("dynamic_heights and dynamic_spatial are mutually exclusive.")
+
+    if dynamic_spatial:
+        if images.ndim != 4:
+            raise ValueError("Dynamic spatial inputs must be NCHW tensors.")
+        # The detector FPN contains stride-32 shape constraints.  Express
+        # official PaddleOCR's 32-aligned dynamic resize as derived factors
+        # so Torch 2.6 can prove those constraints during export.
+        dimensions[2] = 32 * torch.export.Dim("height_factor", min=1, max=128)
+        dimensions[3] = 32 * torch.export.Dim("width_factor", min=1, max=128)
 
     if dynamic_heights:
         heights = tuple(int(height) for height in dynamic_heights)

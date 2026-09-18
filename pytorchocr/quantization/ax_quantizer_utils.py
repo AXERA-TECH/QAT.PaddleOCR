@@ -1277,6 +1277,9 @@ def _do_annotate_activate(
                 continue
 
             act_node.meta["quantization_annotation"].input_qspec_map = input_qspec_map
+            output_qspec = get_output_act_qspec(quantization_config)
+            if output_qspec is not None:
+                _set_output_qspec(act_node, output_qspec)
             _update_last_node_output_qspec(input_node, act_node, get_input_act_qspec(quantization_config))
     return
 

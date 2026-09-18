@@ -144,8 +144,12 @@ def parse_args():
     )
     parser.add_argument(
         "--augmentation",
-        choices=["none", "paddle"],
-        help="Training augmentation preset; validation is always deterministic.",
+        choices=["none", "crop", "paddle"],
+        help=(
+            "Training augmentation preset. Detection 'crop' only applies "
+            "PaddleOCR RandomCrop; 'paddle' enables the full preset. "
+            "Validation is always deterministic."
+        ),
     )
     parser.add_argument(
         "--det-preprocess",
@@ -153,6 +157,14 @@ def parse_args():
         help=(
             "Detection resize preprocessing. 'paddle' is the default; "
             "'letterbox' is the experimental centered-padding variant."
+        ),
+    )
+    parser.add_argument(
+        "--det-eval-preprocess",
+        choices=["official", "letterbox", "paddle"],
+        help=(
+            "Detection validation preprocessing. 'official' matches PaddleOCR "
+            "DetResizeForTest with dynamic 32-aligned H/W and batch 1."
         ),
     )
     parser.add_argument(
@@ -520,9 +532,17 @@ def _train(args):
             raise ValueError("--float-accuracy-baseline must be in [0, 1].")
         if not 0 <= float(epoch2_max_accuracy_drop) <= 1:
             raise ValueError("--epoch2-max-accuracy-drop must be in [0, 1].")
+    default_augmentation = "crop" if qat and args.task == "det" else "none"
     augmentation = str(
-        profile_value(args.augmentation, profile, "augmentation", "none")
+        profile_value(
+            args.augmentation,
+            profile,
+            "augmentation",
+            default_augmentation,
+        )
     )
+    if augmentation == "crop" and args.task != "det":
+        raise ValueError("--augmentation crop is only valid for detection.")
     det_preprocess = str(
         profile_value(
             args.det_preprocess,
@@ -533,6 +553,16 @@ def _train(args):
     )
     if args.task != "det" and det_preprocess != "letterbox":
         raise ValueError("--det-preprocess is only valid for detection.")
+    det_eval_preprocess = str(
+        profile_value(
+            args.det_eval_preprocess,
+            profile,
+            "det_eval_preprocess",
+            "official" if args.task == "det" else "letterbox",
+        )
+    )
+    if args.task != "det" and det_eval_preprocess != "letterbox":
+        raise ValueError("--det-eval-preprocess is only valid for detection.")
     multi_scale_training = bool(
         profile_value(
             args.multi_scale_training,
@@ -623,11 +653,12 @@ def _train(args):
             return_polygons=args.task == "det",
             rec_multi_head=rec_multi_head,
             augmentation="none",
-            det_preprocess=det_preprocess,
+            det_preprocess=det_eval_preprocess,
         )
+        validation_batch_size = 1 if args.task == "det" and det_eval_preprocess == "official" else batch_size
         validation_loader = DataLoader(
             validation_dataset,
-            batch_size=batch_size,
+            batch_size=validation_batch_size,
             shuffle=False,
             num_workers=workers,
             drop_last=False,
@@ -749,7 +780,7 @@ def _train(args):
             if multi_scale_training
             else batch_size
         )
-        if insert_identity_bn:
+        if insert_identity_bn or keep_bn:
             bn_statistics_steps = int(
                 profile_value(
                     args.bn_statistics_steps,
@@ -802,6 +833,12 @@ def _train(args):
                 example_images,
                 dynamic_batch=example_images.shape[0] > 1,
                 dynamic_heights=dynamic_heights,
+                # Official detector validation uses 32-aligned dynamic H/W;
+                # build_qat_dynamic_shapes expresses those dimensions as
+                # 32-based factors so the v6 FPN export guards are provable.
+                dynamic_spatial=(
+                    args.task == "det" and det_eval_preprocess == "official"
+                ),
                 batch_aligned_inputs=batch_aligned_inputs,
                 max_batch=dynamic_batch_max,
             ),
@@ -940,7 +977,9 @@ def _train(args):
         "bn_training_momentum": (
             bn_training_momentum if insert_identity_bn else None
         ),
-        "freeze_bn_stats": freeze_bn_stats if insert_identity_bn else None,
+        "freeze_bn_stats": (
+            freeze_bn_stats if (insert_identity_bn or keep_bn) else None
+        ),
         "kd": kd,
         "kd_mode": kd_mode if kd else None,
         "kd_weight": kd_weight if kd else None,
@@ -1012,6 +1051,9 @@ def _train(args):
         "amp": effective_amp,
         "dynamic_batch": qat and batch_size > 1,
         "dynamic_batch_max": dynamic_batch_max if qat else None,
+        "dynamic_spatial": (
+            qat and args.task == "det" and det_eval_preprocess == "official"
+        ),
         "dynamic_heights": dynamic_heights or [],
         "augmentation": augmentation,
         # Keep a stable default for rec checkpoints as well.  The field is
@@ -1019,6 +1061,7 @@ def _train(args):
         # must remain compatible with checkpoints created before this field
         # was introduced.
         "det_preprocess": det_preprocess,
+        "det_eval_preprocess": det_eval_preprocess,
         "multi_scale_training": multi_scale_training,
         "float_nodes": float_node_count,
         "validation_main_indicator": (

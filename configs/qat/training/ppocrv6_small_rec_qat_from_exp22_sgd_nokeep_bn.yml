@@ -1,0 +1,28 @@
+name: ppocrv6-small-rec-qat-from-exp22-sgd-nokeep-bn
+task: rec
+model_name: PP-OCRv6_small_rec
+qat: true
+qat_config: ../../../runs/exp23_ppocrv6_small_rec_qat_from_exp22_nokeep_bn_full/ppocrv6_small_rec_u8s8_attn_s8_nokeep_train.json
+training:
+  epochs: 8
+  batch_size: 64
+  workers: 0
+  optimizer: SGD
+  momentum: 0.9
+  learning_rate: 0.00001
+  weight_decay: 0.00003
+  ctc_fc_weight_decay: 0.00001
+  image_shape: [3, 48, 320]
+  augmentation: none
+  multi_scale_training: false
+  amp: false
+  reparameterize: true
+  keep_bn: false
+  rec_graph: pretrained_train
+  rec_ctc_backbone_grad: false
+  warmup_epochs: 1
+  lr_final_factor: 0.1
+  observer_freeze_epoch: null
+  save_every: 1
+  save_every_steps: 5000
+  seed: 20260826

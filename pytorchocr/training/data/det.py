@@ -223,17 +223,23 @@ class DetectionDataset(Dataset):
             raise ValueError("Detection padding value must be in [0, 255].")
         self.map_generator = map_generator or DBMapGenerator()
         self.return_polygons = bool(return_polygons)
-        if det_preprocess not in ("letterbox", "paddle"):
+        if det_preprocess not in ("letterbox", "paddle", "official"):
             raise ValueError(
-                "Detection preprocessing must be 'letterbox' or 'paddle'."
+                "Detection preprocessing must be 'letterbox', 'paddle', or "
+                "'official'."
             )
         self.det_preprocess = det_preprocess
-        if augmentation not in ("none", "paddle"):
-            raise ValueError("Detection augmentation must be 'none' or 'paddle'.")
+        if augmentation not in ("none", "crop", "paddle"):
+            raise ValueError(
+                "Detection augmentation must be 'none', 'crop', or 'paddle'."
+            )
         self.augmentation = augmentation
         self.augmenter = (
-            PaddleDetectionAugmentation(self.image_shape)
-            if augmentation == "paddle"
+            PaddleDetectionAugmentation(
+                self.image_shape,
+                additional_augmentations=augmentation == "paddle",
+            )
+            if augmentation in ("crop", "paddle")
             else None
         )
         with open(self.label_file, encoding="utf-8") as label_stream:
@@ -289,6 +295,40 @@ class DetectionDataset(Dataset):
             polygon[:, 1] *= y_scale
         return image
 
+    def _official_resize(self, image, polygons):
+        """Match PaddleOCR ``DetResizeForTest`` with its default arguments."""
+        source_height, source_width = image.shape[:2]
+        if source_height + source_width < 64:
+            padded_height = max(32, source_height)
+            padded_width = max(32, source_width)
+            padded = np.zeros(
+                (padded_height, padded_width, image.shape[2]), dtype=image.dtype
+            )
+            padded[:source_height, :source_width] = image
+            image = padded
+        resize_height, resize_width = image.shape[:2]
+        short_side = min(resize_height, resize_width)
+        ratio = 736.0 / short_side if short_side < 736 else 1.0
+        resized_height = int(resize_height * ratio)
+        resized_width = int(resize_width * ratio)
+        if max(resized_height, resized_width) > 4000:
+            ratio = 4000.0 / max(resized_height, resized_width)
+            resized_height = int(resize_height * ratio)
+            resized_width = int(resize_width * ratio)
+        resized_height = max(int(round(resized_height / 32) * 32), 32)
+        resized_width = max(int(round(resized_width / 32) * 32), 32)
+        image = cv2.resize(
+            image,
+            (resized_width, resized_height),
+            interpolation=cv2.INTER_LINEAR,
+        )
+        ratio_height = resized_height / float(resize_height)
+        ratio_width = resized_width / float(resize_width)
+        for polygon in polygons:
+            polygon[:, 0] *= ratio_width
+            polygon[:, 1] *= ratio_height
+        return image, (ratio_height, ratio_width)
+
     def __len__(self):
         return len(self.samples)
 
@@ -322,7 +362,7 @@ class DetectionDataset(Dataset):
         sample = self._load_sample(index)
         if self.augmenter is not None:
             external = None
-            if len(self.samples) > 1:
+            if self.augmentation == "paddle" and len(self.samples) > 1:
                 external_index = np.random.randint(len(self.samples) - 1)
                 if external_index >= index:
                     external_index += 1
@@ -331,9 +371,16 @@ class DetectionDataset(Dataset):
         image = sample.image
         polygons = sample.polygons
         ignore_tags = sample.ignore_tags
+        original_height, original_width = image.shape[:2]
 
         _, target_height, target_width = self.image_shape
-        if self.det_preprocess == "letterbox":
+        ratio_height = ratio_width = 1.0
+        if self.det_preprocess == "official":
+            image, (ratio_height, ratio_width) = self._official_resize(
+                image, polygons
+            )
+            target_height, target_width = image.shape[:2]
+        elif self.det_preprocess == "letterbox":
             image = self._letterbox(image, polygons)
         else:
             image = self._paddle_resize(image, polygons)
@@ -354,7 +401,20 @@ class DetectionDataset(Dataset):
                     "polygons": [polygon.copy() for polygon in polygons],
                     "ignore_tags": np.asarray(ignore_tags, dtype=np.bool_),
                     "shape": np.asarray(
-                        [target_height, target_width, 1.0, 1.0],
+                        [
+                            (
+                                original_height
+                                if self.det_preprocess == "official"
+                                else target_height
+                            ),
+                            (
+                                original_width
+                                if self.det_preprocess == "official"
+                                else target_width
+                            ),
+                            ratio_height,
+                            ratio_width,
+                        ],
                         dtype=np.float32,
                     ),
                 }

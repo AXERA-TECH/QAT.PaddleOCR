@@ -115,6 +115,7 @@ class DatasetTest(unittest.TestCase):
         augmenter = PaddleDetectionAugmentation(
             (3, 20, 40),
             flip_probability=1.0,
+            rotate_probability=0.0,
             rotate_range=(0, 0),
             scale_range=(1, 1),
             crop_tries=0,
@@ -130,6 +131,70 @@ class DatasetTest(unittest.TestCase):
             [[35, 2], [3, 2], [3, 18], [35, 18]],
             atol=1.0e-5,
         )
+
+    def test_paddle_detection_augmentation_matches_v6_parameters(self):
+        augmenter = PaddleDetectionAugmentation((3, 640, 640))
+
+        self.assertEqual(augmenter.copy_paste_ratio, 0.2)
+        self.assertEqual(augmenter.flip_probability, 0.5)
+        self.assertEqual(augmenter.rotate_probability, 0.5)
+        self.assertEqual(augmenter.rotate_range, (-45.0, 45.0))
+        self.assertEqual(augmenter.scale_range, (0.1, 2.0))
+        self.assertEqual(augmenter.crop_tries, 50)
+
+    def test_paddle_detection_crop_does_not_upscale_and_randomly_pads(self):
+        image = np.full((20, 40, 3), 127, dtype=np.uint8)
+        polygon = np.asarray(
+            [[4, 2], [36, 2], [36, 18], [4, 18]],
+            dtype=np.float32,
+        )
+        augmenter = PaddleDetectionAugmentation(
+            (3, 40, 40),
+            additional_augmentations=False,
+            crop_tries=0,
+        )
+
+        random_state = random.getstate()
+        random.seed(7)
+        try:
+            augmented = augmenter(
+                DetectionSample(image, [polygon], [False], ["text"])
+            )
+        finally:
+            random.setstate(random_state)
+
+        self.assertEqual(augmented.image.shape, (40, 40, 3))
+        occupied_rows = np.where(augmented.image[:, :, 0].max(axis=1) > 0)[0]
+        self.assertEqual(len(occupied_rows), 20)
+        self.assertAlmostEqual(
+            float(np.ptp(augmented.polygons[0][:, 1])), 16.0, places=5
+        )
+
+    def test_detection_crop_preset_does_not_load_copy_paste_sample(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.write_image(directory, "det.jpg", shape=(20, 40, 3))
+            annotation = [
+                {
+                    "transcription": "text",
+                    "points": [[4, 2], [36, 2], [36, 18], [4, 18]],
+                }
+            ]
+            labels = Path(directory) / "det.txt"
+            labels.write_text(
+                f"det.jpg\t{json.dumps(annotation)}\n",
+                encoding="utf-8",
+            )
+            dataset = DetectionDataset(
+                labels,
+                data_dir=directory,
+                image_shape=(3, 40, 40),
+                augmentation="crop",
+            )
+            image, targets = dataset[0]
+
+        self.assertEqual(tuple(image.shape), (3, 40, 40))
+        self.assertEqual(tuple(targets["shrink_map"].shape), (40, 40))
+        self.assertFalse(dataset.augmenter.additional_augmentations)
 
     def test_detection_dataset_defaults_to_paddle_resize_without_padding(self):
         class CaptureMapGenerator:
@@ -167,6 +232,56 @@ class DatasetTest(unittest.TestCase):
         )
         expected_resized = (127 / 255.0 - 0.485) / 0.229
         self.assertAlmostEqual(float(image[0, 0, 0]), expected_resized, places=5)
+
+    def test_detection_dataset_official_resize_keeps_ratio_and_shape(self):
+        class CaptureMapGenerator:
+            def __call__(self, image_shape, polygons, ignore_tags):
+                self.image_shape = image_shape
+                self.polygons = [polygon.copy() for polygon in polygons]
+                height, width = image_shape
+                return {"map": np.zeros((height, width), dtype=np.float32)}
+
+        with tempfile.TemporaryDirectory() as directory:
+            self.write_image(directory, "wide.jpg", shape=(20, 40, 3))
+            annotation = [
+                {
+                    "transcription": "text",
+                    "points": [[4, 2], [36, 2], [36, 18], [4, 18]],
+                }
+            ]
+            labels = Path(directory) / "det.txt"
+            labels.write_text(
+                f"wide.jpg\t{json.dumps(annotation)}\n", encoding="utf-8"
+            )
+            map_generator = CaptureMapGenerator()
+            dataset = DetectionDataset(
+                labels,
+                data_dir=directory,
+                image_shape=(3, 640, 640),
+                map_generator=map_generator,
+                return_polygons=True,
+                det_preprocess="official",
+            )
+            image, targets = dataset[0]
+
+        self.assertEqual(tuple(image.shape), (3, 736, 928))
+        self.assertEqual(map_generator.image_shape, (736, 928))
+        np.testing.assert_allclose(
+            map_generator.polygons[0],
+            np.asarray(
+                [
+                    [92.8, 46.0],
+                    [835.2, 46.0],
+                    [835.2, 414.0],
+                    [92.8, 414.0],
+                ],
+                dtype=np.float32,
+            ),
+            atol=1.0e-4,
+        )
+        np.testing.assert_allclose(
+            targets["shape"], [20, 40, 23.0, 23.2], atol=1.0e-5
+        )
 
     def test_detection_dataset_paddle_preset_produces_valid_db_targets(self):
         with tempfile.TemporaryDirectory() as directory:

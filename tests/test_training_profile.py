@@ -36,6 +36,7 @@ class TrainingProfileTest(unittest.TestCase):
         self.assertEqual(profile.training["epochs"], 50)
         self.assertEqual(profile.training["image_shape"], [3, 640, 640])
         self.assertEqual(profile.training["optimizer"], "AdamW")
+        self.assertEqual(profile.training["augmentation"], "crop")
         self.assertTrue(profile.training["keep_bn"])
         self.assertIsNone(profile.training["observer_freeze_epoch"])
         self.assertEqual(profile_value(4, profile, "batch_size"), 4)
@@ -51,7 +52,7 @@ class TrainingProfileTest(unittest.TestCase):
         self.assertIsNone(profile.qat_config)
         self.assertEqual(profile.training["optimizer"], "Adam")
         self.assertEqual(profile.training["augmentation"], "paddle")
-        self.assertNotIn("det_preprocess", profile.training)
+        self.assertEqual(profile.training["det_preprocess"], "paddle")
         self.assertFalse(profile.training["amp"])
         self.assertEqual(profile.training["epochs"], 100)
         self.assertEqual(profile.training["image_shape"], [3, 640, 640])
@@ -68,6 +69,7 @@ class TrainingProfileTest(unittest.TestCase):
         self.assertEqual(profile.training["batch_size"], 64)
         self.assertEqual(profile.training["learning_rate"], 0.001)
         self.assertEqual(profile.training["augmentation"], "paddle")
+        self.assertEqual(profile.training["det_preprocess"], "paddle")
         self.assertFalse(profile.training["amp"])
         self.assertEqual(profile.training["epochs"], 100)
 
@@ -80,6 +82,7 @@ class TrainingProfileTest(unittest.TestCase):
         self.assertTrue(profile.qat_config.is_file())
         self.assertEqual(profile.training["batch_size"], 64)
         self.assertEqual(profile.training["image_shape"], [3, 48, 320])
+        self.assertEqual(profile.training["optimizer"], "AdamW")
         self.assertTrue(profile.training["reparameterize"])
 
     def test_ppocrv5_mobile_detection_profile(self):
@@ -91,6 +94,7 @@ class TrainingProfileTest(unittest.TestCase):
         self.assertTrue(profile.qat)
         self.assertEqual(profile.qat_config.name, "ppocrv5_mobile_det_u8s8.json")
         self.assertEqual(profile.training["image_shape"], [3, 640, 640])
+        self.assertEqual(profile.training["augmentation"], "crop")
         self.assertIsNone(profile.training["observer_freeze_epoch"])
 
     def test_ppocrv5_mobile_rec_u16s16_sgd_dynamic_height_profile(self):

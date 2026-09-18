@@ -59,6 +59,7 @@ def build_prepared_qat_checkpoint(
     capture_images = torch.empty(captured_batch, *image_shape)
     dynamic_batch = bool(metadata.get("dynamic_batch", False))
     dynamic_heights = metadata.get("dynamic_heights") or None
+    dynamic_spatial = bool(metadata.get("dynamic_spatial", False))
     example_inputs = (capture_images,)
     batch_aligned_inputs = 0
     if task == "rec" and rec_graph == "pretrained_train":
@@ -85,6 +86,7 @@ def build_prepared_qat_checkpoint(
             capture_images,
             dynamic_batch=dynamic_batch,
             dynamic_heights=dynamic_heights,
+            dynamic_spatial=dynamic_spatial,
             batch_aligned_inputs=batch_aligned_inputs,
             max_batch=metadata.get("dynamic_batch_max"),
         ),

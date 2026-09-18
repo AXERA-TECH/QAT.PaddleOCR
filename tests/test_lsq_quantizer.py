@@ -236,5 +236,62 @@ class AvgPoolRegionalAnnotationTest(unittest.TestCase):
         self.assertEqual(input_spec.quant_max, 32767)
 
 
+class ActivationRegionalAnnotationTest(unittest.TestCase):
+    def test_gelu_regional_output_qspec_applies(self):
+        class GeluModel(nn.Module):
+            def forward(self, inputs):
+                return F.gelu(inputs)
+
+        torch.manual_seed(0)
+        model = GeluModel().eval()
+        images = torch.randn(2, 4)
+        exported = torch.export.export_for_training(model, (images,)).module()
+        gelu_name = next(
+            node.name
+            for node in exported.graph.nodes
+            if node.op == "call_function"
+            and node.target == torch.ops.aten.gelu.default
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            config = json.load(open("configs/qat/base_u8s8.json"))
+            config["lsq"] = True
+            config["regional_configs"] = [
+                {
+                    "module_names": [gelu_name],
+                    "module_type": "gelu",
+                    "module_config": {
+                        "is_symmetric": True,
+                        "output_is_symmetric": True,
+                        "input": {
+                            "dtype": "S16",
+                            "qmin": -32767,
+                            "qmax": 32767,
+                        },
+                        "output": {
+                            "dtype": "S16",
+                            "qmin": -32767,
+                            "qmax": 32767,
+                        },
+                    },
+                }
+            ]
+            path = Path(directory) / "gelu_regional.json"
+            path.write_text(json.dumps(config))
+            prepared, _ = prepare_qat_model(
+                model,
+                (images,),
+                load_axera_quantizer(str(path)),
+            )
+        gelu_node = next(
+            node for node in prepared.graph.nodes if node.name == gelu_name
+        )
+        annotation = gelu_node.meta["quantization_annotation"]
+        input_spec = list(annotation.input_qspec_map.values())[0]
+        self.assertEqual(input_spec.dtype, torch.int16)
+        self.assertEqual(annotation.output_qspec.dtype, torch.int16)
+        self.assertEqual(annotation.output_qspec.quant_min, -32767)
+        self.assertEqual(annotation.output_qspec.quant_max, 32767)
+
+
 if __name__ == "__main__":
     unittest.main()
