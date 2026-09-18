@@ -24,9 +24,25 @@ profile, checkpoint, and exported graph as one versioned contract.
     PyTorch export environment changes. Do not resume a prepared checkpoint across graph changes.
  5. Use a QAT training profile. Let explicit CLI values override the profile, and let the profile
     override floating-point Paddle YAML training defaults.
- 6. Keep random data augmentation disabled for the baseline. For detection, use PaddleOCR fixed-shape
-    resize preprocessing and transform polygons with the same horizontal/vertical scales. The centered
+ 6. Keep recognition random augmentation disabled for the baseline. The detection QAT baseline uses only
+    PaddleOCR `RandomCrop(640x640, keep_ratio=true)`; keep CopyPaste, flip, rotation, and random scale
+    disabled unless the experiment explicitly selects the full `paddle` augmentation preset. Validation
+    uses PaddleOCR `DetResizeForTest: null` dynamic resize, batch 1, and transforms polygons with the same
+    horizontal/vertical scales. The prepared detector graph expresses H/W as 32-based factors; the centered
     letterbox path is an explicit experimental option and must transform polygons with its scale and offset.
+
+### Detection Evaluation Contracts
+
+Keep evaluation preprocessing tied to the model stage:
+
+- Float and PT2E detection evaluation uses PaddleOCR's official dynamic resize
+  (`DetResizeForTest: null`): preserve aspect ratio, resize the short side to at least 736,
+  align H/W to a multiple of 32, cap the long side at 4000, and use batch 1.
+- QuantONNX and AXModel evaluation uses centered `letterbox` with padding value 114 and the
+  actual static model input H/W. The current PP-OCRv6 small det deployment contract is
+  `3x736x736`; an older static 640 model remains compatible at `640x640`.
+- Do not compare metrics across these preprocessing contracts as if they were a quantization
+  delta. For ONNX/PT2E alignment, explicitly select the same preprocessing mode.
 
 ## Train
 

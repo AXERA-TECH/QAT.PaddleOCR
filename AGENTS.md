@@ -107,6 +107,12 @@ Paddle YAML + .pdparams
 模型代码、输入 shape、PyTorch 版本、重参数化方式或 QAT JSON 变化后，必须重新从浮点权重 prepare；
 禁止把旧 prepared checkpoint 加载到新图。
 
+量化 dtype 约定：普通卷积/线性/数据移动路径的激活使用无符号 `U8/U16`，权重使用有符号
+`S8/S16`。MatMul/Attention 的连续 signed 量化域是显式例外，可使用 `S8/S16` 激活；其域内的
+scale Mul、MatMul、Softmax 以及必要的线性输入必须保持同一 signed dtype，区域出口再按拓扑回到
+全局无符号激活域。W8A16 表示权重 `S8`、普通激活 `U16`，MatMul/Attention 域通常使用 `S16`；
+不得把 MatMul signed 激活误解为普通卷积激活，也不得把历史不符合该拓扑的 S16 激活实验当作正式方案。
+
 浮点训练也由 `tools/train.py` 支持：不传 QAT 配置（或 profile 设置 `qat: false`），从已转换的浮点
 权重加载完整训练图进行训练/微调。检测使用完整 DBHead 训练输出，识别需要在 profile 中设置
 `rec_graph: pretrained_train` 才会保留 CTC+NRTR/GTC 辅助分支；浮点训练完成后再从其权重重新 prepare
@@ -149,18 +155,28 @@ QAT。
 
 ## 数据与训练合同
 
-- QAT baseline 关闭随机增强。
-- 检测输入默认使用 PaddleOCR 固定 `image_shape` 的直接 resize，polygon 必须使用相同的水平/垂直
-  scale；归一化采用 ImageNet mean/std。可通过 `--det-preprocess letterbox` 或 profile 的
+- 检测 QAT baseline 默认只启用 PaddleOCR `RandomCrop(640x640, keep_ratio=true)`；其余随机增强关闭。
+  `augmentation: paddle`（或 `--augmentation paddle`）才启用 CopyPaste、翻转、旋转和随机缩放，
+  `augmentation: none` 可完全关闭增强。识别 QAT baseline 仍关闭随机增强。
+- 检测浮点训练 profile 使用 PaddleOCR PP-OCRv6 DB 流程对应的 CopyPaste、水平翻转、随机旋转、
+  随机缩放和 `RandomCrop(640x640, keep_ratio=true)`；检测 QAT baseline 只保留 RandomCrop，验证路径
+  使用 PaddleOCR `DetResizeForTest: null` 动态 resize，polygon 必须使用相同的水平/垂直 scale；归一化采用
+  ImageNet mean/std。检测 validation/QAT 默认使用该官方流程：保持长宽比、短边不足
+  736 时放大、H/W 对齐到 32 倍数、最长边不超过 4000，validation batch 为 1。PT2E prepared 图将
+  H/W 表达为 32 倍因子；QuantONNX 仍固定为部署输入尺寸。可通过 `--det-preprocess letterbox` 或 profile 的
   `training.det_preprocess: letterbox` 使用本项目的居中 padding 实验模式，该模式使用 padding value
-  114，并同步缩放 polygon 与 offset。原始 `DetResizeForTest: null` 的短边/32 对齐可变尺寸策略不直接
-  用于当前固定输入的 PT2E/QAT batch。
+  114，并同步缩放 polygon 与 offset。固定 `640x640` 仅用于训练输入或静态部署导出；与官方动态尺寸
+  的 precision/recall/hmean 不得直接相减。所有检测浮点模型（官方预训练和微调后权重）的正式精度、
+  README 指标及微调收益结论均以该官方动态尺寸合同为准。
 - 识别输入按目标高度等比缩放、右侧 zero padding，并归一化到 `[-1, 1]`。
 - PT2E 默认固定 H/W。PP-OCRv5 rec 可由 profile 显式声明
     `dynamic_heights: [32, 48, 64]`，使用 `16 * height_factor` 捕获三档离散高度；宽度仍固定为 320。
   batch size 大于 1 时训练入口同时记录 dynamic batch；batch size 为 1 时通常特化为静态 batch 1。
 - 动态空间尺寸只属于 prepared QAT 训练图。QuantONNX 必须按 checkpoint 的 `image_shape` 静态导出；
   PP-OCRv5 rec 当前固定为 `3x48x320`，不得把动态高度传播到 QuantONNX 输入。
+- 当前 PP-OCRv6 small det 的部署合同为静态 `3x736x736` QuantONNX/AXModel，默认使用与目标尺寸一致的
+  居中 `letterbox`（padding value 114）。旧的静态 640 产物按自身 H/W 使用 640 letterbox 保持兼容。
+  float/PT2E 的评估仍使用 PaddleOCR 官方动态 resize，不能与部署件的 letterbox 指标直接比较。
 - optimizer 名称、SGD momentum、检测预处理模式和 dynamic heights 都属于 checkpoint resume 合同；任一项变化后
   必须从浮点权重重新 prepare，不能恢复旧 Adam/static-shape checkpoint。
 - **正式 QAT profile 只使用 AdamW 或 SGD**（profile `optimizer: AdamW|SGD`）。不要使用 `Adam`：
@@ -243,9 +259,9 @@ ONNX 图优化（`evaluate_onnx.py --ort-optimize`）。两个 acc/指标一并�
 - **编译产物与 QuantONNX 精度对齐**优先使用 `axera/compare_rec_onnx_ax_batch.py` 或
   `axera/compare_det_onnx_ax.py`（复制到 Pulsar2 工具服务器后运行）逐样本对比 axmodel 与 onnx；
   识别比较 CTC logits，检测比较 shrink map，以区分预处理差异、Pulsar2 frontend 优化差异与真实量化损失。
-- 板端评估和输入准备使用 `axera/eval_board_rec.py`、`axera/eval_board_det.py`
-  （`--vis-dir` 输出叠加 DB 框的可视化图、`--vis-score` 叠加分数、`--no-maps` 只出可视化）、
-  `axera/prep_icdr_inputs.py` 和 `axera/prep_recval_parts.py`。
+- 板端评估和输入准备使用 `axera/eval_board_rec.py`（识别,输入预处理已内置;
+  `--make-parts` 生成分片、`--parts-dir` 走分片模式）与 `axera/eval_board_det.py`（检测;
+  `--vis-dir` 输出叠加 DB 框的可视化图、`--vis-score` 叠加分数、`--no-maps` 只出可视化）。
 - 上板精度与 ONNX 精度对不齐时，先跑仿真对比（axmodel vs onnx），不要直接推断为训练/量化
   配置问题。
 - **per-layer dump 的 dtype 陷阱**：`pulsar2 run --enable_perlayer_output` 的中间层 bin 是

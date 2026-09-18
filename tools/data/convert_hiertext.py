@@ -7,6 +7,9 @@ Inputs (under --dst):
 
 Outputs:
   det_{train,val}.txt   word-level polygons (### kept as ignore)
+  det_line_{train,val}.txt
+                         line-level polygons (### kept as ignore, with
+                         --det-level line)
   rec_{train,val}.txt   word crops
   recrop/{train,val}/word_{imgseq}_{wordseq}.png
 
@@ -25,7 +28,8 @@ Annotation schema (v1.0 single JSON object, COCO-style array):
 
 Det label rules (matching pytorchocr/training/data/det.py): every entry must
 carry a >=3-point polygon; transcription "###" marks an ignore region, so
-illegible/unreadable words are kept as "###" with their valid polygon.
+illegible/unreadable words or lines are kept as "###" with their valid
+polygon.
 
 Parallelism mirrors convert_textocr.py: --split runs one split per process,
 --workers parallelizes per-image processing, --recrop-root points at a local
@@ -67,6 +71,39 @@ def collect_words(annotation):
     return words
 
 
+def collect_lines(annotation):
+    """Flatten paragraphs -> lines while preserving line-level geometry."""
+    lines = []
+    for paragraph in annotation.get("paragraphs") or []:
+        paragraph_legible = paragraph.get("legible", False)
+        for line in paragraph.get("lines") or []:
+            lines.append(
+                {
+                    **line,
+                    "legible": paragraph_legible and line.get("legible", False),
+                }
+            )
+    return lines
+
+
+def collect_det_entries(annotation, level):
+    """Build detection entries from either HierText words or lines."""
+    objects = collect_words(annotation) if level == "word" else collect_lines(annotation)
+    entries = []
+    for item in objects:
+        points = [
+            [float(vertex[0]), float(vertex[1])]
+            for vertex in (item.get("vertices") or [])
+        ]
+        if not validate_det_polygon(points):
+            continue
+        text = (item.get("text") or "").strip()
+        if not item.get("legible", False) or not text or text == "###":
+            text = "###"
+        entries.append({"transcription": text, "points": points})
+    return entries
+
+
 def process_image(task):
     """One image -> (relative, det_entries, rec_items, rec_filtered) or None."""
     (
@@ -74,16 +111,18 @@ def process_image(task):
         image_path,
         image_seq,
         words,
+        det_entries,
         recrop_dir,
         recrop_root,
         args,
     ) = task
     if not image_path.exists():
         return None
+    if args.det_only:
+        return image_relative, det_entries, [], 0
     loaded = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
     if loaded is None:
         return None
-    det_entries = []
     rec_items = []
     rec_local = 0
     rec_filtered = 0
@@ -97,11 +136,7 @@ def process_image(task):
             continue
         text = (word.get("text") or "").strip()
         if not word.get("legible", False) or not text or text == "###":
-            if not args.rec_only:
-                det_entries.append({"transcription": "###", "points": points})
             continue
-        if not args.rec_only:
-            det_entries.append({"transcription": text, "points": points})
         if args.det_only:
             continue
         cleaned = filter_rec_text(text, args.dictionary, args.max_text_length)
@@ -145,6 +180,7 @@ def convert_split(args, recrop_root, image_root, split):
                 image_root / split / file_name,
                 image_seq,
                 collect_words(annotation),
+                collect_det_entries(annotation, args.det_level),
                 recrop_dir,
                 recrop_root,
                 args,
@@ -154,19 +190,19 @@ def convert_split(args, recrop_root, image_root, split):
     det_rows = []
     rec_rows = []
     det_images = 0
-    det_words = 0
+    det_objects = 0
     det_ignored = 0
     rec_kept = 0
     rec_filtered = 0
 
     def collect(result):
-        nonlocal det_images, det_words, det_ignored, rec_kept, rec_filtered
+        nonlocal det_images, det_objects, det_ignored, rec_kept, rec_filtered
         if result is None:
             return
         relative, det_entries, rec_items, filtered = result
         det_images += 1
         if not args.rec_only:
-            det_words += sum(
+            det_objects += sum(
                 1 for entry in det_entries if entry["transcription"] != "###"
             )
             det_ignored += sum(
@@ -186,12 +222,13 @@ def convert_split(args, recrop_root, image_root, split):
             collect(process_image(task))
 
     if not args.rec_only:
-        write_det_labels(args.dst / f"det_{output_split}.txt", det_rows)
+        prefix = "det_line" if args.det_level == "line" else "det"
+        write_det_labels(args.dst / f"{prefix}_{output_split}.txt", det_rows)
     if not args.det_only:
         write_rec_labels(args.dst / f"rec_{output_split}.txt", rec_rows)
     print(
         f"[{split}->{output_split}] det {det_images} images "
-        f"({det_words} words, {det_ignored} ignore); "
+        f"({det_objects} {args.det_level}s, {det_ignored} ignore); "
         f"rec kept {rec_kept}, filtered {rec_filtered}",
         flush=True,
     )
@@ -216,6 +253,12 @@ def main():
         help="Root directory for recrop output (default: --dst). Use a local "
         "disk to avoid NFS small-file stalls; rec labels then carry absolute "
         "crop paths (RecognitionDataset accepts absolute paths).",
+    )
+    parser.add_argument(
+        "--det-level",
+        choices=("word", "line"),
+        default="word",
+        help="Detection annotation level; default preserves word-level output.",
     )
     parser.add_argument(
         "--split",

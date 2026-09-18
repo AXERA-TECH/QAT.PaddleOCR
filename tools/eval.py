@@ -63,10 +63,12 @@ def parse_args():
     )
     parser.add_argument(
         "--det-preprocess",
-        choices=["letterbox", "paddle"],
+        choices=["official", "letterbox", "paddle"],
         help=(
-            "Detection resize preprocessing; defaults to checkpoint metadata "
-            "when --pt is given, otherwise PaddleOCR fixed-shape resize."
+            "Detection resize preprocessing. Standalone PT2E defaults to PaddleOCR "
+            "official dynamic resize; standalone ONNX defaults to centered letterbox "
+            "using the static ONNX input shape. Combined alignment requires an "
+            "explicit choice."
         ),
     )
     parser.add_argument(
@@ -181,7 +183,7 @@ def _build_loader(args, config, image_shape, full_rec, sample_count):
         rec_multi_head=full_rec,
         det_preprocess=(
             args.det_preprocess
-            or ("paddle" if args.task == "det" else "letterbox")
+            or ("official" if args.task == "det" else "letterbox")
         ),
     )
     if sample_count is not None:
@@ -338,12 +340,22 @@ def main(args):
         configured_shape = tuple(config["Global"].get("d2s_train_image_shape", ()))
         requested_shape = tuple(args.image_shape or configured_shape)
         input_shape = resolve_onnx_input_shape(session, requested_shape)
+    if args.onnx and args.pt and args.det_preprocess is None and args.task == "det":
+        raise ValueError(
+            "Combined ONNX/PT detection alignment requires explicit "
+            "--det-preprocess letterbox or --det-preprocess paddle."
+        )
+    if args.onnx and not args.pt and args.det_preprocess is None and args.task == "det":
+        args.det_preprocess = "letterbox"
+    if args.pt and not args.onnx and args.det_preprocess is None and args.task == "det":
+        args.det_preprocess = "official"
     if args.pt:
         pt_model, pt_metadata = load_pt2e(args, config)
-        if args.det_preprocess is None and args.task == "det":
-            # Preserve the preprocessing contract of checkpoints created
-            # before det_preprocess was stored in metadata.
-            args.det_preprocess = pt_metadata.get("det_preprocess", "letterbox")
+    if args.onnx and args.det_preprocess == "official":
+        raise ValueError(
+            "Official dynamic detection preprocessing is only supported for "
+            "PyTorch evaluation; QuantONNX uses its static input contract."
+        )
 
     result = {}
     if args.onnx:

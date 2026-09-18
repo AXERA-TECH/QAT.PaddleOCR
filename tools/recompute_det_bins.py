@@ -1,6 +1,6 @@
 """Recompute det task metrics from board/sim raw shrink-map bins.
 
-Pairs `outputBin/<stem>/maps.bin` (float32 [1,1,640,640]) with the dataset
+Pairs `outputBin/<stem>/maps.bin` (float32 [1,1,H,W]) with the dataset
 samples in label-file order and feeds them through the same validation metric
 pipeline used by tools/evaluate_onnx.py.
 """
@@ -35,11 +35,18 @@ def parse_args():
     parser.add_argument(
         "--det-preprocess",
         choices=["letterbox", "paddle"],
-        default="paddle",
+        default="letterbox",
         help=(
             "Detection resize preprocessing used to transform validation polygons; "
-            "defaults to PaddleOCR fixed-shape resize."
+            "defaults to centered letterbox for QuantONNX/AXModel output."
         ),
+    )
+    parser.add_argument(
+        "--output-shape",
+        nargs=2,
+        type=int,
+        metavar=("H", "W"),
+        help="Spatial shape of maps.bin; defaults to the model config image shape.",
     )
     return parser.parse_args()
 
@@ -47,7 +54,11 @@ def parse_args():
 def main():
     args = parse_args()
     config = load_ocr_config(args.model_config)
-    image_shape = tuple(config["Global"].get("d2s_train_image_shape", (3, 640, 640)))
+    configured_shape = tuple(
+        config["Global"].get("d2s_train_image_shape", (3, 640, 640))
+    )
+    output_height, output_width = tuple(args.output_shape or configured_shape[1:])
+    image_shape = (3, output_height, output_width)
     dataset = build_dataset(
         "det",
         args.model_config,
@@ -80,7 +91,9 @@ def main():
     seen = 0
     for (_images, targets), stem in zip(loader, stems):
         bin_path = bin_root / stem / "maps.bin"
-        maps = np.fromfile(bin_path, dtype=np.float32).reshape(1, 1, 640, 640)
+        maps = np.fromfile(bin_path, dtype=np.float32).reshape(
+            1, 1, output_height, output_width
+        )
         metric.update(torch.from_numpy(maps), targets)
         seen += 1
     result = {

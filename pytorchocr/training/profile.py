@@ -32,6 +32,8 @@ _TRAINING_KEYS = {
     "dynamic_heights",
     "augmentation",
     "det_preprocess",
+    "det_eval_preprocess",
+    "dynamic_spatial",
     "multi_scale_training",
     "float_accuracy_baseline",
     "epoch2_max_accuracy_drop",
@@ -78,6 +80,8 @@ _RESUME_CONTRACT_KEYS = (
     "dynamic_heights",
     "augmentation",
     "det_preprocess",
+    "det_eval_preprocess",
+    "dynamic_spatial",
     "multi_scale_training",
     "float_accuracy_baseline",
     "epoch2_max_accuracy_drop",
@@ -248,10 +252,11 @@ def _validate_training_values(training, qat=False):
         )
     if "augmentation" in training and training["augmentation"] not in (
         "none",
+        "crop",
         "paddle",
     ):
         raise ValueError(
-            "Training profile augmentation must be 'none' or 'paddle'."
+            "Training profile augmentation must be 'none', 'crop', or 'paddle'."
         )
     if "det_preprocess" in training and training["det_preprocess"] not in (
         "letterbox",
@@ -259,6 +264,15 @@ def _validate_training_values(training, qat=False):
     ):
         raise ValueError(
             "Training profile det_preprocess must be 'letterbox' or 'paddle'."
+        )
+    if "det_eval_preprocess" in training and training["det_eval_preprocess"] not in (
+        "official",
+        "letterbox",
+        "paddle",
+    ):
+        raise ValueError(
+            "Training profile det_eval_preprocess must be 'official', "
+            "'letterbox', or 'paddle'."
         )
 
 
@@ -459,6 +473,18 @@ def validate_resume_contract(saved_metadata, current_metadata):
                 key,
                 "paddle" if current_metadata.get("task") == "det" else "letterbox",
             )
+        elif key == "det_eval_preprocess":
+            saved = saved_metadata.get(
+                key,
+                "official" if saved_metadata.get("task") == "det" else "letterbox",
+            )
+            current = current_metadata.get(
+                key,
+                "official" if current_metadata.get("task") == "det" else "letterbox",
+            )
+        elif key == "dynamic_spatial":
+            saved = bool(saved_metadata.get(key, False))
+            current = bool(current_metadata.get(key, False))
         elif key == "multi_scale_training":
             saved = bool(saved_metadata.get(key, False))
             current = bool(current_metadata.get(key, False))

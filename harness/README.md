@@ -82,7 +82,9 @@ Harness 的完整开发验证链路如下：
 - Paddle 模型 YAML 和转换后的浮点权重；
 - QAT JSON 和训练 profile；
 - 输入 shape、batch policy、重参数化方式和 keep-BN；
-- 预处理模式。检测默认与 PaddleOCR 固定尺寸 resize 对齐，居中 letterbox 只能作为显式实验选项；
+- 预处理模式。检测 float/PT2E 评估使用 PaddleOCR `DetResizeForTest: null` 官方动态 resize；
+  QuantONNX/AXModel 使用与实际静态输入 H/W 一致的居中 letterbox（当前 v6-det 为 736x736，padding value 114），
+  旧 640x640 部署件按自身尺寸兼容；不同预处理合同的指标不能直接比较；
 - 训练图与部署图输出合同。检测训练保留 shrink、threshold、binary 和辅助监督，部署只保留 shrink；
   识别训练保留完整训练分支，部署只保留 CTC logits；
 - optimizer、学习率、observer 生命周期和动态 shape 合同；

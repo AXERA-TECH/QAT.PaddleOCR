@@ -9,24 +9,31 @@ PT2E 完成浮点训练、QAT、checkpoint 恢复和 QuantONNX 导出，并面�
 检测统一报告 `hmean`，识别统一报告 sequence accuracy，均为越高越好。QAT 指标优先采用 AX650
 板端全量结果；QuantONNX 在 `ORT_DISABLE_ALL` 下的结果作为语义基线和板端对照。
 
-| 模型 | 验证集 | 主指标 | 浮点指标 | 量化方式 | 配置 | 量化指标（板端优先） |
+| 模型 | 验证集 | 主指标 | 浮点指标（det 为官方动态尺寸） | 量化方式 | 配置 | 量化指标（板端优先） |
 | --- | --- | --- | ---: | --- | --- | ---: |
-| PP-OCRv6 small rec | TextOCR/COCO-Text 混合 `rec_val`（149,695）<br>ICDR（2,077） | accuracy | `0.7326`<br>`0.7400` | PTQ | [U8/S8 + Attention S8](configs/qat/ppocrv6_small_rec_u8s8_attn_s8.json)，512 个同验证集样本校准¹ | converted `0.6987`<br>converted `0.6755` |
-| PP-OCRv6 small rec | TextOCR/COCO-Text 混合 `rec_val`（149,695）<br>ICDR（2,077） | accuracy | `0.7326`<br>`0.7400` | QAT | [U8/S8 + Attention S8](configs/qat/ppocrv6_small_rec_u8s8_attn_s8.json)，已验证配置 | AX650 `0.7070`（ORT `0.7072`）<br>AX650 `0.7304`（ORT `0.7232`） |
-| PP-OCRv6 small det | 混合 `det_val`（3,624；TextOCR 3,124 + ICDR 500）<br>ICDAR2015 test（500） | hmean | `0.5272`<br>`0.6003` | PTQ | [U8/S8](configs/qat/ppocrv6_small_det_u8s8.json)，浮点微调权重、128 张训练图校准³ | prepared `0.5144` / converted `0.5148`<br>prepared `0.6138` / converted `0.6159` |
-| PP-OCRv6 small det | 混合 `det_val`（3,624；TextOCR 3,124 + ICDR 500）<br>ICDAR2015 test（500） | hmean | `0.5272`<br>`0.6003` | QAT | [U8/S8](configs/qat/ppocrv6_small_det_u8s8.json)，浮点微调权重重新 prepare 后训练 | AX650 `0.5476`（ORT `0.5470`）<br>AX650 `0.6922`（ORT `0.6956`） |
+| PP-OCRv6 small rec | TextOCR/COCO-Text 混合 `rec_val`（149,695）<br>ICDR（2,077） | accuracy | `0.7326`<br>`0.7400` | PTQ | [U8/S8 + Attention S8](configs/qat/ppocrv6_small_rec_u8s8_attn_s8.json)，512 张验证集样本校准 | converted `0.6987`<br>converted `0.6755` |
+|  | TextOCR/COCO-Text 混合 `rec_val`（149,695）<br>ICDR（2,077） | accuracy | `0.7326`<br>`0.7400` | QAT | [U8/S8 + Attention S8](configs/qat/ppocrv6_small_rec_u8s8_attn_s8.json)，已验证配置 | AX650 `0.7070`<br>AX650 `0.7304` |
+| PP-OCRv6 small det | TextOCR/ICDR 混合 `det_val`（3,624）<br>ICDAR2015 test（500） | hmean | 待按官方动态尺寸重测 | PTQ | [U8/S8](configs/qat/ppocrv6_small_det_u8s8.json)，浮点微调权重、128 张训练图校准 | converted `0.5148`<br>converted `0.6159` |
+| | TextOCR/ICDR 混合 `det_val`（3,624）<br>ICDAR2015 test（500） | hmean | 待按官方动态尺寸重测 | QAT | [U8/S8](configs/qat/ppocrv6_small_det_u8s8.json)，浮点微调权重QAT | AX650 `0.5476`<br>AX650 `0.6922` |
 
 注：
 - v6-rec 的 PTQ 报告默认取各验证集前 512 个样本校准，校准集与评估集不独立，因此这里只归档
 已有数值，不能据此发布 QAT/PTQ 收益结论；公平 PTQ 对照仍待补跑。
 
-- v6-det 本次 PTQ、浮点和 QAT 均以浮点微调权重为起点；PTQ 使用训练集前 128 张样本校准，并在完整
-det_val 上评估。因此 PTQ 与浮点的差异可用于观察 8bit 量化损失，PTQ 与 QAT 的差异仍同时包含 QAT 微调收益。
+- v6-det 的 PTQ 和 QAT 均以同一浮点微调权重为起点；PTQ 使用训练集前 128 张样本校准，并在完整
+det_val 上评估。现有 PTQ/QAT 数值保留静态部署口径，不能与官方动态尺寸浮点指标直接计算量化损失。
 
-- 表中 v6-det 指标采用居中 `letterbox` 预处理；当前仓库支持与 PaddleOCR 对齐的固定尺寸 `resize` 预处理，
-并默认使用该方式。不同预处理条件下的指标不可直接混用。
+- 表中 v6-det 量化指标采用历史居中 `letterbox` 预处理。检测浮点模型的正式精度统一以 PaddleOCR
+  官方 eager Eval 为准：`DetResizeForTest: null`、保持长宽比、短边至少 736、H/W 对齐到 32 倍数、
+  最长边不超过 4000、batch 1。当前新 v6-det QuantONNX 使用静态 `3x736x736` 输入和居中
+  `letterbox`（padding value 114）；旧静态输入产物按自身 H/W 使用对应的 letterbox。不同预处理
+  条件下的指标不可直接混用。
 
-- 当前已验证的识别训练数据集基于 `TextOCR/COCO-Text` 混合数据；如果在自定义数据集上训练遇到问题，
+- 已按官方动态尺寸合同完成 HierText line validation 1,724 张的预训练浮点基线：precision
+  `0.599613`、recall `0.647573`、hmean `0.622671`。HierText 微调仍在进行，微调后指标待最终候选
+  checkpoint 使用相同合同重评后补入。
+
+- 当前已验证的训练数据集基于混合公开数据集；如果在私有数据集上训练遇到问题，
 请提交 issue 或通过其他方式联系我们，以便继续提供支持。
 
 所有命令都从仓库根目录执行。命令的完整参数以对应工具的 `--help` 为准。
@@ -96,11 +103,16 @@ det/images/img_001.jpg<TAB>[{"transcription":"text","points":[[12,16],[80,16],[8
 ```
 
 识别字典、`max_text_length` 和 `use_space_char` 从模型 YAML 读取；检测忽略文本使用 `"###"` 或
-`"*"`。train/val 应按原图划分，不能按 polygon 随机拆分。QAT baseline 关闭随机增强，验证集始终禁用增强。
+`"*"`。train/val 应按原图划分，不能按 polygon 随机拆分。检测 QAT baseline 默认只使用
+`RandomCrop(640x640, keep_ratio=true)`，验证集始终禁用增强。
 
 v6-rec 固定输入为 `3x48x320`，识别预处理为等比缩放、右侧 zero padding 和 `[-1, 1]` 归一化。
-v6-det 默认使用 PaddleOCR 固定输入尺寸 resize、polygon 同步缩放和 ImageNet mean/std 归一化；如需
-复现本项目的居中 letterbox 实验，可在训练/评估命令中增加 `--det-preprocess letterbox`。
+v6-det 浮点训练默认使用与 PaddleOCR PP-OCRv6 对齐的 CopyPaste、翻转、随机旋转、随机缩放和
+`RandomCrop(640x640, keep_ratio=true)`；QAT baseline 只使用该随机裁剪。检测 validation 和 QAT
+默认按模型 YAML 的 `DetResizeForTest: null` 使用可变尺寸、保持长宽比、短边至少 736、H/W 对齐到
+32 倍数和 batch size 1，polygon 同步缩放并使用 ImageNet mean/std 归一化。需要完整 Paddle 风格增强时，增加 `--augmentation paddle`。
+QuantONNX/AXModel 默认使用与静态输入 H/W 一致的居中 `letterbox`；如需 direct resize，显式传
+`--det-preprocess paddle`。
 QuantONNX 部署输入固定为 batch 1。
 
 ## 3. PP-OCRv6 Small Rec QAT
@@ -183,7 +195,8 @@ python3 tools/train.py \
   --device cuda
 ```
 
-QAT 优化器建议 AdamW 或 SGD。baseline 使用 FP32、关闭 AMP 和随机增强，observer 全程开启；验证时 trainer
+QAT 优化器建议 AdamW 或 SGD。识别 baseline 使用 FP32、关闭 AMP 和随机增强；检测 baseline 默认只启用
+640x640 随机裁剪。所有 QAT observer 全程开启；验证时 trainer
 临时关闭 observer 并在结束后恢复。除独立实验外，不设置 `--observer-freeze-epoch`。
 
 QAT 配置、重参数化方式和训练参数已经在仓库中验证，当前仓库已验证的 QAT 配置可直接按本节命令复现。
@@ -344,6 +357,11 @@ python3 -c 'import sys, torch; checkpoint = torch.load(sys.argv[1], map_location
   weights/ptocr_v6_small_det_float_best.pth
 ```
 
+训练过程中的固定 `640x640` 验证只用于候选 checkpoint 选点。检测浮点模型的最终 precision、recall 和
+hmean 必须使用模型 YAML 的官方 `DetResizeForTest: null` 动态尺寸流程，以 batch 1 在完整验证集重评；
+README 精度表只接收该口径的浮点指标。固定尺寸训练指标不得作为最终浮点精度，也不得直接与静态
+QuantONNX 或板端指标相减。
+
 ### 4.3 QAT
 
 使用仓库已验证的 U8/S8 QAT 配置，从浮点微调权重重新启动 QAT。训练过程中每个 epoch 执行验证，
@@ -377,6 +395,7 @@ python3 tools/train.py \
 python3 tools/export_ocr_onnx.py checkpoint \
   --checkpoint runs/exp20c_ppocrv6_small_det_u8s8_keep_bn_from_exp20b/best.pt \
   --output exports/quantonnx/ppocrv6_small_det_exp20c.onnx \
+  --image-shape 3 736 736 \
   --batch-size 1 \
   --ort-optimizer-check
 
@@ -386,8 +405,9 @@ python3 tools/verify_qat_onnx.py \
 ```
 
 导出器按 checkpoint metadata 重建图并 strict load，随后执行 `convert_pt2e`、
-`onnx_program.optimize()`、QDQ 检查和 ONNX checker。QuantONNX 固定为静态 batch 1，输入
-`inputs_0[1,3,640,640]`，输出 shrink map。
+`onnx_program.optimize()`、QDQ 检查和 ONNX checker。当前 v6-det QuantONNX 固定为静态 batch 1，
+输入 `inputs_0[1,3,736,736]`，输出 shrink map。`--image-shape` 必须与部署模型实际输入一致；
+历史 `[1,3,640,640]` QuantONNX 仍可使用 640x640 letterbox 评估，但不能与 736 合同下的指标混用。
 
 ### 4.5 QDQ 和 ORT 双指标
 
@@ -416,14 +436,14 @@ python3 tools/evaluate_onnx.py \
 两组指标必须分别记录。Pulsar2/AXModel 部署与板端验收见
 [Axera 部署与板端精度验证指南](axera/README.md)。
 
-上述评估命令默认使用 checkpoint/训练合同中的预处理；没有 checkpoint metadata 时，检测使用 PaddleOCR
-固定尺寸 resize。旧 checkpoint 若没有 `det_preprocess` 字段，则保留历史 letterbox 回退以保证可复现。
-若需复现本项目的居中 letterbox 实验，在 `evaluate_onnx.py` 和 `recompute_det_bins.py`
-中同时增加 `--det-preprocess letterbox`，保证 polygon 坐标和模型输入使用同一预处理：
+上述命令评估的是固定输入的 QuantONNX，默认按 ONNX 静态 H/W 使用居中 `letterbox`，并将
+padding value 114、polygon 坐标变换和模型输入保持一致。它不等价于 PaddleOCR eager 浮点模型或
+PT2E 模型的 `DetResizeForTest: null` 动态尺寸评估；后者通过 `tools/eval.py --pt` 使用官方动态
+预处理。需要 direct resize 对照时显式传 `--det-preprocess paddle`：
 
 ```bash
-python3 tools/evaluate_onnx.py ... --task det --det-preprocess letterbox
-python3 tools/recompute_det_bins.py ... --det-preprocess letterbox
+python3 tools/evaluate_onnx.py ... --task det --det-preprocess paddle
+python3 tools/recompute_det_bins.py ... --det-preprocess paddle --output-shape 736 736
 ```
 
 ## 5. Pulsar2 和 AXModel 验收

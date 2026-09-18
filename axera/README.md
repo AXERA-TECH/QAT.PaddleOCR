@@ -241,10 +241,11 @@ v6-rec 使用 `use_space_char: true` 时解码字典的字符列表末尾必须�
 
 ### 3.2 检测板端输入和评估
 
-检测输入默认使用 PaddleOCR 固定 `image_shape` resize，polygon 必须使用相同的水平/垂直缩放比例。
-若训练或评估命令显式使用 `--det-preprocess letterbox`，板端也必须使用固定 640 居中 letterbox、
-padding value 114 以及相同的 scale 和 offset 变换。板端输出为 shrink map，使用与 ORT 相同的
-DB postprocess 和 polygon metric 计算 precision、recall、hmean。
+检测 QuantONNX/AXModel 默认使用居中 `letterbox`，目标 H/W 自动从 AXModel 输入读取，padding
+value 为 114，并使用相同的 scale 和 offset 变换 polygon。当前新 v6-det 部署输入为 736x736；
+历史 640x640 AXModel 会自动按 640x640 兼容。若要与 PaddleOCR 浮点/PT2E 的官方动态 resize
+对照，显式传 `--det-preprocess paddle`。板端输出为 shrink map，使用与 ORT 相同的 DB postprocess
+和 polygon metric 计算 precision、recall、hmean。
 
 板端执行检测模型：
 
@@ -253,8 +254,7 @@ python3 axera/eval_board_det.py \
   --axmodel /path/to/compiled.axmodel \
   --image-dir /path/to/det-images \
   --label-file /path/to/det_val.txt \
-  --output-dir /path/to/outputBin_detval \
-  --det-preprocess paddle
+  --output-dir /path/to/outputBin_detval
 ```
 
 **结果可视化（可选）**：`--vis-dir` 会在板端直接跑一次 DB 后处理，并把每个样本的检测框叠加图
@@ -266,9 +266,13 @@ python3 axera/eval_board_det.py \
   --image-dir /path/to/det-images \
   --label-file /path/to/det_val.txt \
   --output-dir /path/to/outputBin_detval \
-  --vis-dir /path/to/vis_detval --vis-score --det-preprocess paddle
+  --vis-dir /path/to/vis_detval --vis-score
 # 只要可视化、不落 maps.bin: 追加 --no-maps
 ```
+
+AXModel 输入尺寸由脚本自动读取，不需要手工填写 736 或 640。若要使用 direct resize 对照，
+在上述命令末尾增加 `--det-preprocess paddle`；这种模式必须与对应 ORT/QuantONNX 评估使用
+相同的预处理参数。
 
 - 阈值默认取 v6 det 配置（`configs/det/PP-OCRv6/PP-OCRv6_small_det.yml`）：
   `--vis-thresh 0.2`、`--vis-box-thresh 0.45`、`--vis-unclip-ratio 1.4`、

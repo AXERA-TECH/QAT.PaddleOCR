@@ -1,7 +1,7 @@
 """Compare a PP-OCR detection QuantONNX with a compiled axmodel (simulation).
 
-Preprocessing exactly matches pytorchocr/training/data/det.py eval contract:
-BGR (no RGB swap) -> center letterbox to 640x640 (pad 114) -> /255 ->
+Preprocessing exactly matches pytorchocr/training/data/det.py deployment contract:
+BGR (no RGB swap) -> center letterbox to the QuantONNX input H/W (pad 114) -> /255 ->
 ImageNet mean/std -> NCHW float32. The same float32 blob feeds both ORT and
 the axmodel (config declares src_dtype FP32, mean 0, std 1).
 
@@ -17,7 +17,6 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-TARGET_H = TARGET_W = 640
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
@@ -36,19 +35,19 @@ def onnx_type_to_np_dtype(onnx_type_str):
     return mapping[core]
 
 
-def preprocess(img_path):
+def preprocess(img_path, target_height, target_width):
     img = cv2.imread(img_path, cv2.IMREAD_COLOR)  # BGR, matches training data pipeline
     if img is None:
         raise FileNotFoundError(img_path)
     h, w = img.shape[:2]
-    scale = min(TARGET_W / w, TARGET_H / h)
-    rw = min(TARGET_W, max(1, round(w * scale)))
-    rh = min(TARGET_H, max(1, round(h * scale)))
+    scale = min(target_width / w, target_height / h)
+    rw = min(target_width, max(1, round(w * scale)))
+    rh = min(target_height, max(1, round(h * scale)))
     img = cv2.resize(img, (rw, rh), interpolation=cv2.INTER_LINEAR)
-    left = (TARGET_W - rw) // 2
-    right = TARGET_W - rw - left
-    top = (TARGET_H - rh) // 2
-    bottom = TARGET_H - rh - top
+    left = (target_width - rw) // 2
+    right = target_width - rw - left
+    top = (target_height - rh) // 2
+    bottom = target_height - rh - top
     img = cv2.copyMakeBorder(img, top, bottom, left, right,
                              cv2.BORDER_CONSTANT, value=(114, 114, 114))
     img = img.astype(np.float32) / 255.0
@@ -70,11 +69,20 @@ def parse_args():
 def main():
     args = parse_args()
     session = ort.InferenceSession(args.onnx, providers=["CPUExecutionProvider"])
-    input_name = session.get_inputs()[0].name
+    input_meta = session.get_inputs()[0]
+    input_name = input_meta.name
+    input_shape = tuple(input_meta.shape)
+    if (
+        len(input_shape) != 4
+        or not isinstance(input_shape[2], int)
+        or not isinstance(input_shape[3], int)
+    ):
+        raise ValueError(f"Detection QuantONNX must have static NCHW H/W, got {input_shape}.")
+    target_height, target_width = input_shape[2:]
     outputs_info = [
         (o.name, o.shape, onnx_type_to_np_dtype(o.type)) for o in session.get_outputs()
     ]
-    print(f"onnx input: {input_name}; outputs: {outputs_info}")
+    print(f"onnx input: {input_name} {input_shape}; outputs: {outputs_info}")
 
     img_paths = sorted(glob.glob(os.path.join(args.image_dir, "*.jpg"))
                        + glob.glob(os.path.join(args.image_dir, "*.jpeg"))
@@ -94,7 +102,7 @@ def main():
     results = []
     for img_path in img_paths:
         name = os.path.splitext(os.path.basename(img_path))[0]
-        blob = preprocess(img_path)
+        blob = preprocess(img_path, target_height, target_width)
         onnx_outputs = session.run(None, {input_name: blob})
 
         input_dir = os.path.join(input_root, name)

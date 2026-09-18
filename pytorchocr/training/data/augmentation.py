@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import cv2
 import numpy as np
+from shapely.geometry import Polygon, box as shapely_box
 
 from .text_image_aug import tia_distort, tia_perspective, tia_stretch
 
@@ -60,53 +61,76 @@ def _is_outside(polygon, x, y, width, height):
     )
 
 
-def _split_regions(axis):
-    if len(axis) == 0:
-        return []
-    split_at = np.where(np.diff(axis) != 1)[0] + 1
-    return [region for region in np.split(axis, split_at) if len(region)]
+def _is_inside(polygon, x, y, width, height):
+    return bool(
+        polygon[:, 0].min() >= x
+        and polygon[:, 0].max() <= x + width
+        and polygon[:, 1].min() >= y
+        and polygon[:, 1].max() <= y + height
+    )
 
 
-def _select_crop_axis(axis, regions, max_size):
-    if len(regions) > 1:
-        selected = random.choices(regions, k=2)
-        values = [int(random.choice(region)) for region in selected]
-    else:
-        values = random.choices(axis.tolist(), k=2)
-    return max(0, min(values)), min(max_size - 1, max(values))
+def _minimum_rotated_side(polygon):
+    if len(polygon) < 3:
+        return 0.0
+    return float(min(cv2.minAreaRect(polygon.astype(np.float32))[1]))
 
 
-def _crop_area(image, polygons, min_side_ratio, max_tries):
-    height, width = image.shape[:2]
-    occupied_x = np.zeros(width, dtype=np.uint8)
-    occupied_y = np.zeros(height, dtype=np.uint8)
-    for polygon in polygons:
-        points = np.round(polygon).astype(np.int32)
-        xmin = int(np.clip(points[:, 0].min(), 0, width - 1))
-        xmax = int(np.clip(points[:, 0].max(), 0, width - 1))
-        ymin = int(np.clip(points[:, 1].min(), 0, height - 1))
-        ymax = int(np.clip(points[:, 1].max(), 0, height - 1))
-        occupied_x[xmin:xmax] = 1
-        occupied_y[ymin:ymax] = 1
-    free_x = np.where(occupied_x == 0)[0]
-    free_y = np.where(occupied_y == 0)[0]
-    if len(free_x) == 0 or len(free_y) == 0:
-        return 0, 0, width, height
-    regions_x = _split_regions(free_x)
-    regions_y = _split_regions(free_y)
-    for _ in range(max_tries):
-        xmin, xmax = _select_crop_axis(free_x, regions_x, width)
-        ymin, ymax = _select_crop_axis(free_y, regions_y, height)
-        crop_width = xmax - xmin
-        crop_height = ymax - ymin
-        if crop_width < min_side_ratio * width or crop_height < min_side_ratio * height:
-            continue
-        if any(
-            not _is_outside(polygon, xmin, ymin, crop_width, crop_height)
-            for polygon in polygons
-        ):
-            return xmin, ymin, crop_width, crop_height
-    return 0, 0, width, height
+def _minimum_quad_side(polygon):
+    if len(polygon) != 4:
+        return 0.0
+    return float(
+        min(
+            np.linalg.norm(polygon[index] - polygon[(index + 1) % 4])
+            for index in range(4)
+        )
+    )
+
+
+def _clip_polygon_to_rect(polygon, x, y, width, height):
+    try:
+        clipped = Polygon(polygon).intersection(
+            shapely_box(x, y, x + width, y + height)
+        )
+        if clipped.is_empty:
+            return None
+        if clipped.geom_type == "Polygon":
+            geometry = clipped
+        elif clipped.geom_type in ("MultiPolygon", "GeometryCollection"):
+            polygons = [
+                item
+                for item in clipped.geoms
+                if item.geom_type == "Polygon" and not item.is_empty
+            ]
+            if not polygons:
+                return None
+            geometry = max(polygons, key=lambda item: item.area)
+        else:
+            return None
+        coordinates = np.asarray(geometry.exterior.coords[:-1], dtype=np.float32)
+        if len(coordinates) <= 3:
+            return None
+        if len(coordinates) == 4:
+            return coordinates
+        contour = coordinates.reshape(-1, 1, 2)
+        perimeter = cv2.arcLength(contour, True)
+        if perimeter < 1.0e-6:
+            return None
+        low, high = 0.0, 0.5
+        best = None
+        for _ in range(50):
+            middle = (low + high) / 2
+            approximation = cv2.approxPolyDP(contour, middle * perimeter, True)
+            if len(approximation) <= 4:
+                best = approximation
+                high = middle
+            else:
+                low = middle
+        if best is None or len(best) < 3:
+            return None
+        return best.reshape(-1, 2)
+    except Exception:
+        return None
 
 
 def _rotate_patch(image, angle):
@@ -162,17 +186,21 @@ class PaddleDetectionAugmentation:
         self,
         image_shape,
         *,
+        additional_augmentations=True,
         copy_paste_ratio=0.2,
         flip_probability=0.5,
-        rotate_range=(-10.0, 10.0),
-        scale_range=(0.5, 3.0),
+        rotate_probability=0.5,
+        rotate_range=(-45.0, 45.0),
+        scale_range=(0.1, 2.0),
         crop_tries=50,
         min_crop_side_ratio=0.1,
     ):
         self.target_height = int(image_shape[1])
         self.target_width = int(image_shape[2])
+        self.additional_augmentations = bool(additional_augmentations)
         self.copy_paste_ratio = float(copy_paste_ratio)
         self.flip_probability = float(flip_probability)
+        self.rotate_probability = float(rotate_probability)
         self.rotate_range = tuple(float(value) for value in rotate_range)
         self.scale_range = tuple(float(value) for value in scale_range)
         self.crop_tries = int(crop_tries)
@@ -219,7 +247,151 @@ class PaddleDetectionAugmentation:
             texts.append(external.texts[index])
         return DetectionSample(image, polygons, ignore_tags, texts)
 
+    def _random_crop(self, sample):
+        image = sample.image
+        polygons = sample.polygons
+        ignore_tags = sample.ignore_tags
+        texts = sample.texts
+        height, width = image.shape[:2]
+        care_indices = [
+            index for index, ignored in enumerate(ignore_tags) if not ignored
+        ]
+
+        if not care_indices:
+            crop_x, crop_y, crop_width, crop_height = 0, 0, width, height
+            valid_care = {}
+        else:
+            character_heights = {
+                index: _minimum_rotated_side(polygons[index])
+                for index in care_indices
+            }
+            valid_care = {}
+            for _ in range(self.crop_tries):
+                minimum_width = min(
+                    int(width * self.min_crop_side_ratio), self.target_width
+                )
+                maximum_width = self.target_width * 3
+                crop_width = (
+                    width
+                    if minimum_width >= maximum_width
+                    else min(random.randint(max(1, minimum_width), maximum_width), width)
+                )
+                minimum_height = min(
+                    int(height * self.min_crop_side_ratio), self.target_height
+                )
+                maximum_height = self.target_height * 3
+                crop_height = (
+                    height
+                    if minimum_height >= maximum_height
+                    else min(
+                        random.randint(max(1, minimum_height), maximum_height),
+                        height,
+                    )
+                )
+                crop_x = (
+                    0
+                    if crop_width >= width
+                    else random.randint(0, width - crop_width)
+                )
+                crop_y = (
+                    0
+                    if crop_height >= height
+                    else random.randint(0, height - crop_height)
+                )
+                valid_care = {}
+                for index in care_indices:
+                    polygon = polygons[index]
+                    if _is_outside(
+                        polygon, crop_x, crop_y, crop_width, crop_height
+                    ):
+                        continue
+                    if _is_inside(polygon, crop_x, crop_y, crop_width, crop_height):
+                        valid_care[index] = None
+                        continue
+                    clipped = _clip_polygon_to_rect(
+                        polygon, crop_x, crop_y, crop_width, crop_height
+                    )
+                    if clipped is None or cv2.contourArea(clipped) < 80:
+                        continue
+                    character_height = character_heights[index]
+                    if _minimum_rotated_side(clipped) < character_height * 0.35:
+                        continue
+                    if (
+                        len(clipped) == 4
+                        and _minimum_quad_side(clipped) < character_height * 0.35
+                    ):
+                        continue
+                    valid_care[index] = clipped
+                if valid_care:
+                    break
+            else:
+                crop_x, crop_y, crop_width, crop_height = 0, 0, width, height
+                valid_care = {index: None for index in care_indices}
+
+        needs_resize = (
+            crop_width > self.target_width or crop_height > self.target_height
+        )
+        scale = (
+            min(
+                self.target_width / crop_width,
+                self.target_height / crop_height,
+            )
+            if needs_resize
+            else 1.0
+        )
+        resized_width = max(1, int(crop_width * scale))
+        resized_height = max(1, int(crop_height * scale))
+        crop = image[crop_y : crop_y + crop_height, crop_x : crop_x + crop_width]
+        resized = (
+            cv2.resize(crop, (resized_width, resized_height))
+            if needs_resize
+            else crop
+        )
+        padding_left = random.randint(0, self.target_width - resized_width)
+        padding_top = random.randint(0, self.target_height - resized_height)
+        output = np.zeros(
+            (self.target_height, self.target_width, 3), dtype=image.dtype
+        )
+        output[
+            padding_top : padding_top + resized_height,
+            padding_left : padding_left + resized_width,
+        ] = resized
+
+        kept_polygons = []
+        kept_ignores = []
+        kept_texts = []
+        offset = np.asarray([crop_x, crop_y], dtype=np.float32)
+        padding = np.asarray([padding_left, padding_top], dtype=np.float32)
+        for index, (polygon, ignored, text) in enumerate(
+            zip(polygons, ignore_tags, texts)
+        ):
+            if ignored:
+                if _is_outside(
+                    polygon, crop_x, crop_y, crop_width, crop_height
+                ):
+                    continue
+                transformed = (polygon - offset) * scale + padding
+                transformed[:, 0] = np.clip(
+                    transformed[:, 0], 0, self.target_width
+                )
+                transformed[:, 1] = np.clip(
+                    transformed[:, 1], 0, self.target_height
+                )
+            else:
+                if index not in valid_care:
+                    continue
+                source = valid_care[index]
+                transformed = (
+                    (polygon if source is None else source) - offset
+                ) * scale + padding
+            kept_polygons.append(transformed.astype(np.float32))
+            kept_ignores.append(ignored)
+            kept_texts.append(text)
+        return DetectionSample(output, kept_polygons, kept_ignores, kept_texts)
+
     def __call__(self, sample, external=None):
+        if not self.additional_augmentations:
+            return self._random_crop(sample)
         sample = self._copy_paste(sample, external)
         image = sample.image
         polygons = [polygon.copy() for polygon in sample.polygons]
@@ -230,42 +402,18 @@ class PaddleDetectionAugmentation:
             width = image.shape[1]
             for polygon in polygons:
                 polygon[:, 0] = width - 1 - polygon[:, 0]
-        image, polygons = _fit_rotation(
-            image,
-            polygons,
-            random.uniform(*self.rotate_range),
-        )
+        if random.random() < self.rotate_probability:
+            image, polygons = _fit_rotation(
+                image,
+                polygons,
+                random.uniform(*self.rotate_range),
+            )
         scale = random.uniform(*self.scale_range)
         image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
         polygons = [polygon * scale for polygon in polygons]
-        care_polygons = [
-            polygon for polygon, ignored in zip(polygons, ignore_tags) if not ignored
-        ]
-        crop_x, crop_y, crop_width, crop_height = _crop_area(
-            image,
-            care_polygons,
-            self.min_crop_side_ratio,
-            self.crop_tries,
+        return self._random_crop(
+            DetectionSample(image, polygons, ignore_tags, texts)
         )
-        scale = min(self.target_width / crop_width, self.target_height / crop_height)
-        resized_width = max(1, int(round(crop_width * scale)))
-        resized_height = max(1, int(round(crop_height * scale)))
-        crop = image[crop_y : crop_y + crop_height, crop_x : crop_x + crop_width]
-        resized = cv2.resize(crop, (resized_width, resized_height))
-        output = np.zeros((self.target_height, self.target_width, 3), dtype=image.dtype)
-        output[:resized_height, :resized_width] = resized
-        kept_polygons = []
-        kept_ignores = []
-        kept_texts = []
-        offset = np.asarray([crop_x, crop_y], dtype=np.float32)
-        for polygon, ignored, text in zip(polygons, ignore_tags, texts):
-            transformed = (polygon - offset) * scale
-            if _is_outside(transformed, 0, 0, resized_width, resized_height):
-                continue
-            kept_polygons.append(transformed)
-            kept_ignores.append(ignored)
-            kept_texts.append(text)
-        return DetectionSample(output, kept_polygons, kept_ignores, kept_texts)
 
 
 class PaddleRecognitionAugmentation:

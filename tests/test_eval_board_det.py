@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 from axera.eval_board_det import (
-    TARGET,
+    DEFAULT_TARGET,
     det_geometry,
     detect_boxes,
     draw_boxes,
@@ -15,20 +15,21 @@ from axera.eval_board_det import (
 
 
 class EvalBoardDetPreprocessTest(unittest.TestCase):
-    def test_defaults_to_paddle_fixed_shape_resize(self):
+    def test_defaults_to_letterbox_at_default_deployment_shape(self):
         image = np.full((20, 40, 3), 127, dtype=np.uint8)
 
         output = preprocess(image)
 
-        self.assertEqual(output.shape, (1, 3, 640, 640))
-        expected = (127.0 / 255.0 - 0.485) / 0.229
-        self.assertAlmostEqual(float(output[0, 0, 0, 0]), expected, places=5)
-        self.assertAlmostEqual(float(output[0, 0, -1, -1]), expected, places=5)
+        self.assertEqual(output.shape, (1, 3, DEFAULT_TARGET, DEFAULT_TARGET))
+        padding = (114.0 / 255.0 - 0.485) / 0.229
+        resized = (127.0 / 255.0 - 0.485) / 0.229
+        self.assertAlmostEqual(float(output[0, 0, 0, 0]), padding, places=5)
+        self.assertAlmostEqual(float(output[0, 0, 184, 0]), resized, places=5)
 
-    def test_letterbox_remains_explicit_compatibility_mode(self):
+    def test_640_letterbox_remains_compatible(self):
         image = np.full((20, 40, 3), 127, dtype=np.uint8)
 
-        output = preprocess(image, "letterbox")
+        output = preprocess(image, "letterbox", 640, 640)
 
         padding = (114.0 / 255.0 - 0.485) / 0.229
         resized = (127.0 / 255.0 - 0.485) / 0.229
@@ -44,15 +45,15 @@ class EvalBoardDetPreprocessTest(unittest.TestCase):
 
 class EvalBoardDetGeometryTest(unittest.TestCase):
     def test_paddle_resize_scales_axes_independently(self):
-        geometry = det_geometry(320, 640, "paddle")
+        geometry = det_geometry(320, 640, "paddle", 640, 640)
 
-        self.assertEqual((geometry.resize_w, geometry.resize_h), (TARGET, TARGET))
+        self.assertEqual((geometry.resize_w, geometry.resize_h), (640, 640))
         self.assertEqual((geometry.left, geometry.top), (0, 0))
-        self.assertAlmostEqual(geometry.scale_x, 640 / TARGET)
-        self.assertAlmostEqual(geometry.scale_y, 320 / TARGET)
+        self.assertAlmostEqual(geometry.scale_x, 640 / 640)
+        self.assertAlmostEqual(geometry.scale_y, 320 / 640)
 
     def test_letterbox_offsets_centered_padding(self):
-        geometry = det_geometry(320, 640, "letterbox")
+        geometry = det_geometry(320, 640, "letterbox", 640, 640)
 
         self.assertEqual((geometry.resize_w, geometry.resize_h), (640, 320))
         self.assertEqual((geometry.left, geometry.top), (0, 160))
@@ -62,8 +63,8 @@ class EvalBoardDetGeometryTest(unittest.TestCase):
     def test_geometry_inverts_the_preprocessing_padding(self):
         """A source pixel must survive preprocess -> box -> map back."""
         image = np.full((240, 400, 3), 127, dtype=np.uint8)
-        geometry = det_geometry(240, 400, "letterbox")
-        self.assertEqual(preprocess(image, "letterbox").shape, (1, 3, TARGET, TARGET))
+        geometry = det_geometry(240, 400, "letterbox", 640, 640)
+        self.assertEqual(preprocess(image, "letterbox", 640, 640).shape, (1, 3, 640, 640))
 
         # The letterboxed content of source (0, 0) sits at (left, top); a source
         # span of 10 px is 10 / scale in target coordinates.
@@ -86,8 +87,8 @@ class EvalBoardDetGeometryTest(unittest.TestCase):
         )
 
     def test_paddle_mapping_respects_non_square_source(self):
-        geometry = det_geometry(320, 640, "paddle")
-        box = np.array([[0, 0], [TARGET, 0], [TARGET, TARGET], [0, TARGET]], dtype=np.float32)
+        geometry = det_geometry(320, 640, "paddle", 640, 640)
+        box = np.array([[0, 0], [640, 0], [640, 640], [0, 640]], dtype=np.float32)
 
         mapped = map_boxes_to_source([box], geometry, 320, 640)[0]
 
@@ -96,7 +97,7 @@ class EvalBoardDetGeometryTest(unittest.TestCase):
 
 class EvalBoardDetBoxesTest(unittest.TestCase):
     def shrink_map_with_two_boxes(self):
-        shrink = np.zeros((TARGET, TARGET), dtype=np.float32)
+        shrink = np.zeros((DEFAULT_TARGET, DEFAULT_TARGET), dtype=np.float32)
         shrink[100:140, 100:300] = 0.9
         shrink[400:430, 200:260] = 0.9
         return shrink
@@ -144,7 +145,7 @@ class EvalBoardDetBoxesTest(unittest.TestCase):
         self.assertEqual((boxes, scores), ([], []))
 
     def test_small_blob_is_dropped_by_min_side(self):
-        shrink = np.zeros((TARGET, TARGET), dtype=np.float32)
+        shrink = np.zeros((DEFAULT_TARGET, DEFAULT_TARGET), dtype=np.float32)
         shrink[10:12, 10:12] = 0.9
 
         boxes, _ = detect_boxes(shrink)
@@ -153,14 +154,18 @@ class EvalBoardDetBoxesTest(unittest.TestCase):
 
     def test_boxes_map_back_to_source_coordinates(self):
         image_shape = (320, 640)
-        geometry = det_geometry(*image_shape, "paddle")
+        geometry = det_geometry(*image_shape, "paddle", DEFAULT_TARGET, DEFAULT_TARGET)
 
         boxes, _ = detect_boxes(self.shrink_map_with_two_boxes())
         mapped = map_boxes_to_source(boxes, geometry, *image_shape)
 
         lefts = sorted(int(box[:, 0].min()) for box in mapped)
-        self.assertAlmostEqual(lefts[0], 100, delta=30)
-        self.assertAlmostEqual(lefts[1], 200, delta=30)
+        expected_lefts = sorted(
+            int(round(value * image_shape[1] / DEFAULT_TARGET))
+            for value in (100, 200)
+        )
+        self.assertAlmostEqual(lefts[0], expected_lefts[0], delta=30)
+        self.assertAlmostEqual(lefts[1], expected_lefts[1], delta=30)
         for box in mapped:
             self.assertGreaterEqual(int(box.min()), 0)
             self.assertLessEqual(int(box[:, 0].max()), image_shape[1])

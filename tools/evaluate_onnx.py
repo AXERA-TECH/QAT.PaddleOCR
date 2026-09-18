@@ -42,9 +42,10 @@ def parse_args():
     parser.add_argument(
         "--det-preprocess",
         choices=["paddle", "letterbox"],
+        default="letterbox",
         help=(
-            "Detection resize preprocessing; defaults to PaddleOCR fixed-shape "
-            "resize."
+            "Detection resize preprocessing; defaults to centered letterbox. "
+            "The letterbox target is the static ONNX input shape."
         ),
     )
     parser.add_argument(
@@ -94,10 +95,7 @@ def main(args):
         args.label_file,
         args.data_dir,
         return_polygons=args.task == "det",
-        det_preprocess=(
-            args.det_preprocess
-            or ("paddle" if args.task == "det" else "letterbox")
-        ),
+        det_preprocess=(args.det_preprocess if args.task == "det" else "letterbox"),
     )
     sample_count = len(dataset)
     if args.samples is not None:

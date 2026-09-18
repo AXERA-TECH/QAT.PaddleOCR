@@ -1,9 +1,9 @@
 """Board-side PP-OCR detection axmodel inference (AX650, axengine).
 
-Feeds the same FP32 NCHW blob contract as the QuantONNX/ORT eval. By default,
-the image is resized directly to 640x640 to match PaddleOCR's fixed-shape
-preprocessing. The historical centered letterbox path can be selected with
-``--det-preprocess letterbox``. Saves raw float32 shrink maps to
+Feeds the same FP32 NCHW blob contract as the QuantONNX/ORT eval. Detection
+deployment defaults to centered letterbox; the target H/W is read from the
+AXModel input and falls back to 736x736 only when shape metadata is unavailable.
+Saves raw float32 shrink maps to
 ``--output-dir/<stem>/maps.bin``; DB postprocess and hmean are computed offline
 on the host.
 
@@ -28,7 +28,7 @@ from typing import NamedTuple
 import cv2
 import numpy as np
 
-TARGET = 640
+DEFAULT_TARGET = 736
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
@@ -44,7 +44,7 @@ VIS_MAX_CANDIDATES = 3000
 
 
 class DetGeometry(NamedTuple):
-    """Target(640x640) to source mapping for one detection preprocessing mode.
+    """Target tensor to source mapping for one detection preprocessing mode.
 
     ``src_x = (dst_x - left) * scale_x`` and ``src_y = (dst_y - top) * scale_y``.
     Direct resize uses independent axis scales because the aspect ratio is not
@@ -59,29 +59,51 @@ class DetGeometry(NamedTuple):
     scale_y: float
 
 
-def det_geometry(height, width, det_preprocess="paddle"):
+def det_geometry(
+    height,
+    width,
+    det_preprocess="letterbox",
+    target_height=DEFAULT_TARGET,
+    target_width=DEFAULT_TARGET,
+):
     """Return the target-to-source mapping used by :func:`preprocess`."""
     if det_preprocess == "paddle":
-        return DetGeometry(TARGET, TARGET, 0, 0, width / TARGET, height / TARGET)
+        return DetGeometry(
+            target_width,
+            target_height,
+            0,
+            0,
+            width / target_width,
+            height / target_height,
+        )
     if det_preprocess == "letterbox":
-        scale = min(TARGET / width, TARGET / height)
-        resize_w = min(TARGET, max(1, round(width * scale)))
-        resize_h = min(TARGET, max(1, round(height * scale)))
+        scale = min(target_width / width, target_height / height)
+        resize_w = min(target_width, max(1, round(width * scale)))
+        resize_h = min(target_height, max(1, round(height * scale)))
         return DetGeometry(
             resize_w,
             resize_h,
-            (TARGET - resize_w) // 2,
-            (TARGET - resize_h) // 2,
+            (target_width - resize_w) // 2,
+            (target_height - resize_h) // 2,
             1.0 / scale,
             1.0 / scale,
         )
     raise ValueError("Detection preprocessing must be 'paddle' or 'letterbox'.")
 
 
-def preprocess(img, det_preprocess="paddle"):
-    geometry = det_geometry(*img.shape[:2], det_preprocess)
+def preprocess(
+    img,
+    det_preprocess="letterbox",
+    target_height=DEFAULT_TARGET,
+    target_width=DEFAULT_TARGET,
+):
+    geometry = det_geometry(
+        *img.shape[:2], det_preprocess, target_height, target_width
+    )
     if det_preprocess == "paddle":
-        img = cv2.resize(img, (TARGET, TARGET), interpolation=cv2.INTER_LINEAR)
+        img = cv2.resize(
+            img, (target_width, target_height), interpolation=cv2.INTER_LINEAR
+        )
     else:
         img = cv2.resize(
             img, (geometry.resize_w, geometry.resize_h), interpolation=cv2.INTER_LINEAR
@@ -89,9 +111,9 @@ def preprocess(img, det_preprocess="paddle"):
         img = cv2.copyMakeBorder(
             img,
             geometry.top,
-            TARGET - geometry.resize_h - geometry.top,
+            target_height - geometry.resize_h - geometry.top,
             geometry.left,
-            TARGET - geometry.resize_w - geometry.left,
+            target_width - geometry.resize_w - geometry.left,
             cv2.BORDER_CONSTANT,
             value=(114, 114, 114),
         )
@@ -168,7 +190,7 @@ def detect_boxes(
     unclip_ratio=VIS_UNCLIP_RATIO,
     max_candidates=VIS_MAX_CANDIDATES,
 ):
-    """Extract DB boxes (640x640 coordinates) and scores from a shrink map."""
+    """Extract DB boxes in shrink-map coordinates and their scores."""
     shrink = np.asarray(shrink, dtype=np.float32)
     found = cv2.findContours(
         (shrink > thresh).astype(np.uint8) * 255, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
@@ -195,7 +217,7 @@ def detect_boxes(
 
 
 def map_boxes_to_source(boxes, geometry, src_height, src_width):
-    """Map 640x640 box coordinates back to the original image."""
+    """Map deployment-tensor box coordinates back to the original image."""
     mapped = []
     for box in boxes:
         box = np.asarray(box, dtype=np.float32)
@@ -242,10 +264,10 @@ def parse_args():
     parser.add_argument(
         "--det-preprocess",
         choices=["paddle", "letterbox"],
-        default="paddle",
+        default="letterbox",
         help=(
-            "Detection preprocessing; defaults to PaddleOCR fixed-shape resize. "
-            "Use letterbox only for the historical centered-padding contract."
+            "Detection preprocessing; defaults to centered letterbox using the "
+            "AXModel input H/W."
         ),
     )
     parser.add_argument(
@@ -293,7 +315,26 @@ def main():
     print(f"total samples: {len(stems)}", flush=True)
 
     session = axengine.InferenceSession(args.axmodel)
-    input_name = args.input_name or session.get_inputs()[0].name
+    input_meta = session.get_inputs()[0]
+    input_name = args.input_name or input_meta.name
+    input_shape = tuple(input_meta.shape)
+    if len(input_shape) != 4:
+        raise ValueError(f"Expected NCHW AXModel input, got {input_shape}.")
+    target_height = (
+        input_shape[2]
+        if isinstance(input_shape[2], int) and input_shape[2] > 0
+        else DEFAULT_TARGET
+    )
+    target_width = (
+        input_shape[3]
+        if isinstance(input_shape[3], int) and input_shape[3] > 0
+        else DEFAULT_TARGET
+    )
+    print(
+        f"input={input_name} shape={input_shape} preprocess={args.det_preprocess} "
+        f"target={target_height}x{target_width}",
+        flush=True,
+    )
     if args.maps:
         os.makedirs(args.output_dir, exist_ok=True)
     if args.vis_dir:
@@ -310,7 +351,9 @@ def main():
         img = cv2.imread(img_path, cv2.IMREAD_COLOR)
         if img is None:
             raise FileNotFoundError(f"cannot decode {img_path}")
-        blob = preprocess(img, args.det_preprocess)
+        blob = preprocess(
+            img, args.det_preprocess, target_height, target_width
+        )
         output = session.run(None, {input_name: blob})[0]
         if args.maps:
             out_dir = os.path.join(args.output_dir, stem)
@@ -326,7 +369,12 @@ def main():
                 unclip_ratio=args.vis_unclip_ratio,
                 max_candidates=args.vis_max_candidates,
             )
-            geometry = det_geometry(*img.shape[:2], args.det_preprocess)
+            geometry = det_geometry(
+                *img.shape[:2],
+                args.det_preprocess,
+                target_height,
+                target_width,
+            )
             boxes = map_boxes_to_source(boxes, geometry, img.shape[0], img.shape[1])
             overlay = draw_boxes(
                 img, boxes, scores, args.vis_thickness, args.vis_score

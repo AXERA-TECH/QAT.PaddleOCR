@@ -11,6 +11,7 @@ training:
   weight_decay: 0.00001
   image_shape: [3, 640, 640]
   augmentation: paddle
+  det_preprocess: paddle
   amp: false
   warmup_epochs: 2
   lr_final_factor: 0.1
