@@ -279,6 +279,17 @@ class DatasetTest(unittest.TestCase):
             ),
             atol=1.0e-4,
         )
+        # The DB target map is generated in resized coordinates, but metric
+        # GT polygons must remain in original-image coordinates because
+        # DBPostProcess maps predictions back using ``targets["shape"]``.
+        np.testing.assert_allclose(
+            targets["polygons"][0],
+            np.asarray(
+                [[4.0, 2.0], [36.0, 2.0], [36.0, 18.0], [4.0, 18.0]],
+                dtype=np.float32,
+            ),
+            atol=1.0e-4,
+        )
         np.testing.assert_allclose(
             targets["shape"], [20, 40, 23.0, 23.2], atol=1.0e-5
         )

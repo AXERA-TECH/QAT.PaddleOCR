@@ -35,6 +35,17 @@ def base_u8s8_config():
     }
 
 
+def base_u16s8_config():
+    return {
+        "global_config": {
+            "is_symmetric": False,
+            "input": {"dtype": "U16", "qmin": 0, "qmax": 65535},
+            "weight": {"dtype": "S8", "qmin": -127, "qmax": 127},
+        },
+        "regional_configs": [],
+    }
+
+
 def attention_regions():
     return [
         {
@@ -115,6 +126,25 @@ class QatConfigDiscoverySkillTest(unittest.TestCase):
             [group["module_config"].get("output", {}).get("dtype")
              for group in generated["regional_configs"]],
             ["S16", None, "S16", "S16", "S16", None],
+        )
+
+    def test_w8a16_keeps_attention_linear_weights_s8(self):
+        generated = DISCOVERY.update_config(
+            base_u16s8_config(),
+            {"attention": attention_regions(), "fx_nodes": 100},
+            "S16",
+        )
+
+        regional = generated["regional_configs"]
+        self.assertEqual(regional[0]["module_config"]["input"]["dtype"], "U16")
+        self.assertEqual(regional[0]["module_config"]["output"]["dtype"], "S16")
+        self.assertEqual(regional[0]["module_config"]["weight"]["dtype"], "S8")
+        self.assertEqual(regional[1]["module_config"]["input"]["dtype"], "S16")
+        self.assertEqual(regional[1]["module_config"]["weight"]["dtype"], "S8")
+        self.assertEqual(regional[5]["module_config"]["input"]["dtype"], "S16")
+        self.assertEqual(
+            effective_output_dtype(regional[5]["module_config"], {"dtype": "U16"}),
+            "U16",
         )
 
     def test_auto_keeps_global_u8s8_compatible(self):

@@ -35,12 +35,13 @@ Softmax, and second MatMul topology.
 | Global activation/weight | Auto Attention | Attention output |
 | --- | --- | --- |
 | U8 / S8 | S8 | U8 |
+| U16 / S8 | S16 | U16 |
 | U16 / S16 | S16 | U16 |
 
 The full 16-bit Attention contract is:
 
 ```text
-QKV Linear: U16 -> S16, weight S16
+QKV Linear: U16 -> S16, weight follows the global weight dtype (W8A16 uses S8)
 scale Mul:  S16 -> S16
 MatMul 1:   S16 -> S16
 Softmax:    S16 -> S16
@@ -167,7 +168,8 @@ dynamic training graph: the Mul entries hit the wrong nodes. Always check with
 - Every generated regional node name exists in the current exported FX graph.
 - Global U8/S8 with auto Attention lowers as
   `MatMul(S8/S8 -> S8) -> Softmax(S8) -> MatMul(S8/S8 -> U8)`.
-- Global U16/S16 with auto or explicit S16 Attention lowers as
-  `MatMul(S16/S16 -> S16) -> Softmax(S16) -> MatMul(S16/S16 -> U16)`.
+- Global U16/S8 or U16/S16 with auto or explicit S16 Attention lowers as
+  `MatMul(S16/S16 -> S16) -> Softmax(S16) -> MatMul(S16/S16 -> U16)`;
+  Linear/Conv weights continue to use the global S8/S16 weight dtype.
 - Det/no-Attention generation reports zero regions and preserves a valid global U8/S8 or U16/S16 config.
 - QuantONNX passes checker, project QDQ validation, ORT semantic comparison, and user structure review.

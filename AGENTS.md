@@ -196,6 +196,24 @@ N 个最优权重”策略尚未实现；在实现并测试前不要在文档中
 
 ## 强制执行顺序
 
+### 真实数据 gate 合同
+
+真实数据 gate 只用于验证训练链路，不用于获得正式精度结论，也不再使用完整数据集。默认合同为：
+
+- 训练集使用固定、可复现的前 `ceil(train_count / 10)` 个样本（约 1/10）；
+- 验证集使用固定、可复现的小子集，默认前 `min(val_count, 256)` 个样本；
+- train/validation 子集的生成方式、样本数和 label 文件路径必须写入实验记录；不能把 validation
+  样本混入训练子集；
+- batch size 不固定为 1 或某个全局值，应按任务、输入 shape、训练图 batch 合同和可用显存选择；检测
+  通常使用能稳定运行的较小 batch，识别可使用其训练 profile 的 batch。实际 batch size 必须记录；
+- gate 固定运行 1 个 epoch，并覆盖 prepare、forward/backward、有限 loss/gradient、validation、
+  checkpoint save、strict reload、reload 后验证或导出；
+- gate 通过后，正式多 epoch QAT 必须从同一浮点权重重新 prepare，不能把 gate checkpoint 当作正式
+  训练起点。完整训练集和完整验证集只用于正式训练、最终 checkpoint 选点和部署验收。
+
+该合同适用于所有 PP-OCR v5/v6 det/rec QAT 和结构/qspec 变更后的真实数据门禁；随机输入
+QAT smoke 仍按模型结构和导出合同执行，不受上述数据比例限制。
+
 任何新模型、模型代码修改或 qspec 修改都按以下顺序推进：
 
 1. 复现 Paddle pretrained 的完整训练结构、辅助头、targets、loss 和梯度路径；
@@ -205,7 +223,8 @@ N 个最优权重”策略尚未实现；在实现并测试前不要在文档中
 5. 验证 prepared 图在 observer-off、fake-quant-off 时保持浮点精度；
 6. 运行随机输入 QAT smoke，覆盖完整训练 backward、部署投影、convert、QuantONNX 和 QDQ 检查；
 7. 将 smoke QuantONNX 交给用户检查模型结构；用户确认前不得启动正式多 epoch QAT；
-8. 使用小规模真实数据完成一个 epoch 的 train、validation、save、strict reload 和 export；
+8. 按“真实数据 gate 合同”使用训练集 1/10 和验证集固定小子集完成一个 epoch 的 train、validation、
+   save、strict reload 和 export；不得为 gate 执行完整数据集；
 9. 才能启动完整数据集训练；
 10. 对 best checkpoint 导出 QuantONNX，执行 ORT、结构审计和 Axera/Pulsar2 验证；
 11. 将配置、命令、checkpoint、QuantONNX 路径和全部指标记入对应文档。
