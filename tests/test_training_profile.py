@@ -42,6 +42,20 @@ class TrainingProfileTest(unittest.TestCase):
         self.assertEqual(profile_value(4, profile, "batch_size"), 4)
         self.assertEqual(profile_value(None, profile, "batch_size"), 8)
 
+    def test_checked_in_detection_w8a16_profile(self):
+        profile = load_training_profile(
+            "configs/qat/training/ppocrv6_small_det_w8a16.yml"
+        )
+        profile.validate_contract("det", "PP-OCRv6_small_det")
+
+        self.assertTrue(profile.qat)
+        self.assertEqual(profile.qat_config.name, "ppocrv6_small_det_u16s8.json")
+        self.assertEqual(profile.training["optimizer"], "AdamW")
+        self.assertEqual(profile.training["image_shape"], [3, 640, 640])
+        self.assertEqual(profile.training["augmentation"], "crop")
+        self.assertTrue(profile.training["keep_bn"])
+        self.assertIsNone(profile.training["observer_freeze_epoch"])
+
     def test_checked_in_detection_float_finetune_profile(self):
         profile = load_training_profile(
             "configs/qat/training/ppocrv6_small_det_float_finetune.yml"

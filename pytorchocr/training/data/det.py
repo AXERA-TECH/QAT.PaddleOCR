@@ -372,6 +372,15 @@ class DetectionDataset(Dataset):
         polygons = sample.polygons
         ignore_tags = sample.ignore_tags
         original_height, original_width = image.shape[:2]
+        # Keep evaluation GT polygons in the coordinate system described by
+        # ``shape``.  The official dynamic resize path uses ``shape`` to map
+        # predictions back to the original image; its training maps still
+        # need polygons in the resized input coordinates.
+        evaluation_polygons = (
+            [polygon.copy() for polygon in polygons]
+            if self.det_preprocess == "official"
+            else polygons
+        )
 
         _, target_height, target_width = self.image_shape
         ratio_height = ratio_width = 1.0
@@ -398,7 +407,7 @@ class DetectionDataset(Dataset):
         if self.return_polygons:
             targets.update(
                 {
-                    "polygons": [polygon.copy() for polygon in polygons],
+                    "polygons": [polygon.copy() for polygon in evaluation_polygons],
                     "ignore_tags": np.asarray(ignore_tags, dtype=np.bool_),
                     "shape": np.asarray(
                         [

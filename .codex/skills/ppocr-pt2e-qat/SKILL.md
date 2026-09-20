@@ -46,19 +46,26 @@ Keep evaluation preprocessing tied to the model stage:
 
 ## Train
 
-1. Run one real-data epoch through prepare, forward/backward, validation, checkpoint save, and strict
-   reload before a full run.
-2. Use low-learning-rate fine-tuning. Start with the checked-in profile; compare learning rates only
+1. Run one reduced real-data gate before a full run. Use a fixed, reproducible 1/10 training subset
+   (`ceil(train_count / 10)`) and a fixed validation subset of at most 256 samples; do not use the
+   complete dataset for this gate and do not train on validation samples. Select batch size according
+   to the task, input shape, training-graph batch contract, and available memory, and record the actual
+   batch size with the subset paths and counts.
+2. The gate must cover prepare, forward/backward, finite loss and gradients, validation, checkpoint save,
+   strict reload, and a post-reload validation or export check. It validates the pipeline, not final
+   accuracy. After the gate passes, re-prepare from the same floating-point weights before formal QAT;
+   never use the gate checkpoint as the formal training start.
+3. Use low-learning-rate fine-tuning. Start with the checked-in profile; compare learning rates only
    after the end-to-end baseline passes. QAT is a quantized-domain fine-tune of pretrained weights:
    the Paddle floating-point training learning rate (e.g. 5e-4) is a reference only and must not be
    used directly for QAT (current baseline: lr 3e-5, warmup 5, Cosine).
-3. Use **AdamW or SGD only** (`profile.training.optimizer: AdamW|SGD`). Never use `Adam`: its L2
+4. Use **AdamW or SGD only** (`profile.training.optimizer: AdamW|SGD`). Never use `Adam`: its L2
    weight decay combines with LSQ gradient scaling (`use_grad_scaling`) and wrongly decays the
    learnable scale/zero_point quant parameters, which diverges early in QAT.
-4. Keep observers enabled throughout training. During validation, disable observers temporarily and
+5. Keep observers enabled throughout training. During validation, disable observers temporarily and
    restore them afterward. Do not set `--observer-freeze-epoch` for the baseline.
-5. Keep QAT EMA and DDP out of the baseline. Add them only through controlled metric comparisons.
-6. Reject missing/non-finite gradients and non-finite loss immediately.
+6. Keep QAT EMA and DDP out of the baseline. Add them only through controlled metric comparisons.
+7. Reject missing/non-finite gradients and non-finite loss immediately.
 
 ## Localize Accuracy Loss
 
