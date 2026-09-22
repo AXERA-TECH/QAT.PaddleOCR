@@ -46,7 +46,6 @@ try:
     import cv2
 except ImportError:  # fallback: PIL decodes and resizes (slightly different filtering)
     cv2 = None
-    from PIL import Image
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +81,8 @@ def load_image(path):
         if image is None:
             raise FileNotFoundError(f"cannot decode image: {path}")
         return image
+    from PIL import Image
+
     with Image.open(path) as handle:
         return np.asarray(handle.convert("RGB"))[:, :, ::-1]  # RGB -> BGR
 
@@ -134,6 +135,48 @@ def decode_indices(indices, characters):
     return texts
 
 
+def levenshtein_distance(left, right):
+    if len(left) < len(right):
+        left, right = right, left
+    previous = list(range(len(right) + 1))
+    for left_index, left_value in enumerate(left, start=1):
+        current = [left_index]
+        for right_index, right_value in enumerate(right, start=1):
+            current.append(
+                min(
+                    current[-1] + 1,
+                    previous[right_index] + 1,
+                    previous[right_index - 1] + (left_value != right_value),
+                )
+            )
+        previous = current
+    return previous[-1]
+
+
+def recognition_metrics(predictions, references, ignore_space=True):
+    if len(predictions) != len(references):
+        raise ValueError(
+            f"prediction count {len(predictions)} != reference text count {len(references)}"
+        )
+    if not predictions:
+        raise ValueError("recognition metric has no samples")
+    if ignore_space:
+        predictions = [text.replace(" ", "") for text in predictions]
+        references = [text.replace(" ", "") for text in references]
+    correct = 0
+    normalized_distance = 0.0
+    for prediction, reference in zip(predictions, references):
+        correct += int(prediction == reference)
+        denominator = max(len(prediction), len(reference))
+        if denominator:
+            normalized_distance += levenshtein_distance(prediction, reference) / denominator
+    samples = len(references)
+    return {
+        "acc": correct / samples,
+        "norm_edit_dis": 1.0 - normalized_distance / samples,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -162,6 +205,12 @@ def parse_args():
     )
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--image-shape", nargs=3, type=int, default=(3, 48, 320))
+    parser.add_argument(
+        "--ignore-space",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Ignore spaces for accuracy and normalized edit distance, matching training eval.",
+    )
     # shard mode (preprocessed npz parts)
     parser.add_argument("--texts", default=None, help="Ground-truth JSON for --parts-dir mode")
     parser.add_argument("--parts-dir", default=None, help="Preprocessed npz shard directory")
@@ -171,8 +220,8 @@ def parse_args():
     parser.add_argument(
         "--make-parts",
         default=None,
-        help="Preprocess the label set into npz shards at this directory and exit "
-        "(use --parts-dir afterwards; useful for very large sets on slow NFS).",
+        help="Preprocess the label set into npz shards plus texts.json at this directory "
+        "and exit (use --parts-dir afterwards; useful for very large sets on slow NFS).",
     )
     parser.add_argument("--parts-size", type=int, default=500, help="Images per shard for --make-parts")
     parser.add_argument("--limit", type=int, default=0, help="Evaluate only the first N samples")
@@ -180,7 +229,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def make_parts(args, image_shape, label_images):
+def make_parts(args, image_shape, label_images, texts):
     """Preprocess the whole label set into npz shards (low memory, streaming)."""
     os.makedirs(args.make_parts, exist_ok=True)
     shard, shard_index, written = [], 0, 0
@@ -205,7 +254,11 @@ def make_parts(args, image_shape, label_images):
             data=np.stack(shard),
         )
         shard_index += 1
+    texts_path = os.path.join(args.make_parts, "texts.json")
+    with open(texts_path, "w", encoding="utf-8") as handle:
+        json.dump(texts, handle, ensure_ascii=False)
     print(f"wrote {shard_index} shards ({written} images) -> {args.make_parts}", flush=True)
+    print(f"wrote {len(texts)} labels -> {texts_path}", flush=True)
 
 
 def main():
@@ -230,7 +283,7 @@ def main():
             texts, label_images = texts[: args.limit], label_images[: args.limit]
 
     if args.make_parts:
-        make_parts(args, image_shape, label_images)
+        make_parts(args, image_shape, label_images, texts)
         return
 
     session = ort.InferenceSession(args.axmodel, sess_options=ort.SessionOptions(), providers=PROVIDERS)
@@ -288,21 +341,16 @@ def main():
             preds.extend(decode_indices(np.argmax(logits, axis=-1), characters))
 
     total = len(texts)
-    if len(preds) != total:
-        raise ValueError(f"prediction count {len(preds)} != reference text count {total}")
-    matches = sum(1 for pred, truth in zip(preds, texts) if pred == truth)
-    import difflib
-
-    neds = [difflib.SequenceMatcher(None, pred, truth).ratio() for pred, truth in zip(preds, texts)]
-    acc = matches / total
-    norm_edit_sim = sum(neds) / total
-    print(f"acc={acc:.6f} norm_edit_sim={norm_edit_sim:.6f} samples={total}", flush=True)
+    metrics = recognition_metrics(preds, texts, ignore_space=args.ignore_space)
+    acc = metrics["acc"]
+    norm_edit_dis = metrics["norm_edit_dis"]
+    print(f"acc={acc:.6f} norm_edit_dis={norm_edit_dis:.6f} samples={total}", flush=True)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as handle:
             json.dump(
                 {
                     "acc": acc,
-                    "norm_edit_sim": norm_edit_sim,
+                    "norm_edit_dis": norm_edit_dis,
                     "samples": total,
                     "axmodel": args.axmodel,
                     "label_file": args.label_file,

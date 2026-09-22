@@ -1,6 +1,6 @@
 {
-  "input": "onnx/exp16_u8s8_downsample_s16/ppocrv5_mobile_rec_exp16_u8s8_downsample_s16_reparam_qdq.onnx",
-  "output_dir": "output/exp16_u8s8_downsample_s16",
+  "input": "onnx/ppocrv5_mobile_rec_u8s8_attn_s8_downsample_s16_qdq.onnx",
+  "output_dir": "output/ppocrv5_mobile_rec_u8s8_attn_s8_downsample_s16",
   "model_type": "QuantONNX",
   "target_hardware": "AX650",
   "npu_mode": "NPU3",

@@ -1,0 +1,59 @@
+{
+  "input": "../../exports/quantonnx/ppocrv6_small_rec_w8a16_attn_s16.onnx",
+  "output_dir": "output/ppocrv6_small_rec_w8a16_attn_s16",
+  "model_type": "QuantONNX",
+  "target_hardware": "AX650",
+  "npu_mode": "NPU3",
+  "quant": {
+    "input_configs": [
+      {
+        "tensor_name": "images",
+        "calibration_dataset": "/path/to/calibration.zip"
+      }
+    ],
+    "layer_configs": [
+      {
+        "layer_names": [
+          "op_14:onnx.FullyConnected",
+          "op_9:onnx.FullyConnected"
+        ],
+        "output_data_type": "S16"
+      },
+      {
+        "layer_names": [
+          "node_MatMul_1033",
+          "node_Softmax_1039",
+          "node_MatMul_1196",
+          "node_Softmax_1202"
+        ],
+        "data_type": "S16",
+        "output_data_type": "S16"
+      },
+      {
+        "layer_names": [
+          "node_MatMul_1049",
+          "node_MatMul_1212"
+        ],
+        "data_type": "S16"
+      }
+    ],
+    "conv_bias_data_type": "FP32",
+    "precision_analysis": true,
+    "precision_analysis_method": "PerLayer",
+    "precision_analysis_mode": "NPUBackend"
+  },
+  "input_processors": [
+    {
+      "tensor_name": "images",
+      "tensor_layout": "NCHW",
+      "src_layout": "NCHW",
+      "src_dtype": "FP32",
+      "mean": [0, 0, 0],
+      "std": [1, 1, 1]
+    }
+  ],
+  "output_processors": [],
+  "compiler": {
+    "check": 2
+  }
+}

@@ -72,6 +72,22 @@ class Pulsar2ConfigSkillTest(unittest.TestCase):
             self.assertEqual(validated.returncode, 0, validated.stderr)
             self.assertIn('"status": "pass"', validated.stdout)
 
+    def test_v6_rec_w8a16_config_declares_attention_regions(self):
+        config_path = ROOT / "axera/config/ppocrv6_small_rec_w8a16_attn_s16.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        rules = config["quant"]["layer_configs"]
+
+        self.assertEqual(len(rules), 3)
+        self.assertEqual(
+            rules[0]["layer_names"],
+            ["op_14:onnx.FullyConnected", "op_9:onnx.FullyConnected"],
+        )
+        self.assertEqual(rules[0]["output_data_type"], "S16")
+        self.assertEqual(rules[1]["data_type"], "S16")
+        self.assertEqual(rules[1]["output_data_type"], "S16")
+        self.assertEqual(rules[2]["data_type"], "S16")
+        self.assertNotIn("output_data_type", rules[2])
+
     def test_profile_entrypoint_is_available_and_model_specific(self):
         help_result = self.run_script(GENERATOR, "--help")
         self.assertEqual(help_result.returncode, 0, help_result.stderr)

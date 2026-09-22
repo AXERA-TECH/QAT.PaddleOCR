@@ -6,14 +6,22 @@
 
 | 文件 | 模型 | 目标 | 验证记录 |
 | --- | --- | --- | --- |
-| [`config-det-exp20c.json`](config-det-exp20c.json) | PP-OCRv6 small det exp20c | AX650 / NPU1 | 已在 `axera/README.md` 的检测部署流程中验证 |
-| [`config-rec-exp22a.json`](config-rec-exp22a.json) | PP-OCRv6 small rec exp22a | AX650 / NPU3 | 已在 `axera/README.md` 的识别部署流程中验证 |
-| [`ppocrv5_mobile_rec_exp16_u8s8.json`](ppocrv5_mobile_rec_exp16_u8s8.json) | PP-OCRv5 mobile rec exp16 | AX650 / NPU3 | 已验证的 v5 配置 |
+| [`ppocrv6_small_det_u8s8_keep_bn.json`](ppocrv6_small_det_u8s8_keep_bn.json) | PP-OCRv6 small det U8/S8 + keep-BN | AX650 / NPU1 | 已在 `axera/README.md` 的检测部署流程中验证 |
+| [`ppocrv6_small_rec_u8s8_attn_s8.json`](ppocrv6_small_rec_u8s8_attn_s8.json) | PP-OCRv6 small rec U8/S8 + Attention S8 | AX650 / NPU3 | 已在 `axera/README.md` 的识别部署流程中验证 |
+| [`ppocrv6_small_rec_w8a16_attn_s16.json`](ppocrv6_small_rec_w8a16_attn_s16.json) | PP-OCRv6 small rec W8A16 + Attention S16 | AX650 / NPU3 | Pulsar2 7.0、50 张仿真对比和两套全量板端评估通过 |
+| [`ppocrv5_mobile_rec_u8s8_attn_s8_downsample_s16.json`](ppocrv5_mobile_rec_u8s8_attn_s8_downsample_s16.json) | PP-OCRv5 mobile rec U8/S8 + Attention S8 + downsample S16 | AX650 / NPU3 | 已验证的 v5 配置 |
 
-这些配置是对应实验中实际使用并验证通过的版本，不是通用模板。配置中的 `input`、
-`calibration_dataset` 和 `output_dir` 仍指向原实验目录，迁移到新的 Pulsar2 工作目录后必须按实际
-文件位置调整。识别模型的 `layer_configs` 使用 frontend 优化后的节点名，不能根据新的 QuantONNX
-直接沿用；如果 QuantONNX 或 frontend 图发生变化，应重新生成或审计配置。
+这些配置是对应模型中实际使用并验证通过的版本，不是通用模板。部分历史配置仍指向原实验目录；
+W8A16 配置的 `input` 与根 README 的标准导出路径一致。所有配置的 `calibration_dataset` 和
+`output_dir` 都应在迁移到 Pulsar2 工作目录后按实际文件位置确认。识别模型若包含 frontend
+优化后的 `layer_configs` 节点名，不能根据新的 QuantONNX 直接沿用；QuantONNX 或 frontend 图发生
+变化后应重新生成或审计配置。
+
+W8A16 配置显式声明了对应 frontend 图中的两个 QKV `FullyConnected` 和两组 Attention 数据流为
+S16；其余普通路径保持 QuantONNX 图内的 U16 激活，权重为 S8。这里的 `layer_names` 是该次
+Pulsar2 frontend 产物的节点名，不是 PT2E FX 名称。QuantONNX、Pulsar2 版本或 frontend 图变化后，
+必须重新生成并校验这些映射，不能直接沿用。`calibration_dataset` 只满足工具链字段要求，不会覆盖
+QAT qparams。配置使用可替换的模型、输出和校准集路径，复制到 Pulsar2 工作目录后按实际路径修改。
 
 需要为其他 PP-OCR det/rec 或已完成 QAT 的 QuantONNX 生成配置时，使用通用 skill：
 

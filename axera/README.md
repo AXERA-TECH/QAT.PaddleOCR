@@ -32,9 +32,10 @@ QuantONNX
 
 | 模型 | 配置 |
 | --- | --- |
-| PP-OCRv6 small det exp20c | [`config-det-exp20c.json`](config/config-det-exp20c.json) |
-| PP-OCRv6 small rec exp22a | [`config-rec-exp22a.json`](config/config-rec-exp22a.json) |
-| PP-OCRv5 mobile rec exp16 | [`ppocrv5_mobile_rec_exp16_u8s8.json`](config/ppocrv5_mobile_rec_exp16_u8s8.json) |
+| PP-OCRv6 small det U8/S8 + keep-BN | [`ppocrv6_small_det_u8s8_keep_bn.json`](config/ppocrv6_small_det_u8s8_keep_bn.json) |
+| PP-OCRv6 small rec U8/S8 + Attention S8 | [`ppocrv6_small_rec_u8s8_attn_s8.json`](config/ppocrv6_small_rec_u8s8_attn_s8.json) |
+| PP-OCRv6 small rec W8A16 + Attention S16 | [`ppocrv6_small_rec_w8a16_attn_s16.json`](config/ppocrv6_small_rec_w8a16_attn_s16.json) |
+| PP-OCRv5 mobile rec U8/S8 + Attention S8 + downsample S16 | [`ppocrv5_mobile_rec_u8s8_attn_s8_downsample_s16.json`](config/ppocrv5_mobile_rec_u8s8_attn_s8_downsample_s16.json) |
 
 从仓库根目录复制与模型对应的配置，再修改实际文件路径和目标设备参数：
 
@@ -201,12 +202,12 @@ python3 axera/eval_board_rec.py --help
 **`eval_board_rec.py` 已内置该预处理**（无需独立预处理脚本）；两种模式：
 
 - **在线模式（默认）**：直接从挂载数据集读图并逐批预处理——板端内存小也能跑
-  （逐批释放），适合数千张量级的验证集（如 ICDR 2077 张）；
+  （逐批释放），适合数千张量级的验证集（如 ICDAR2015 test 2077 张）；
 - **分片模式（`--parts-dir`）**：读取预处理好的 npz 分片，在慢速 NFS 或
   十万张量级（如 rec_val 149,695）时更快。分片可由脚本自身生成：
 
 ```bash
-# 可选:先生成分片（在同一数据集上运行,输出目录单独指定）
+# 可选：先生成分片和同目录的 texts.json
 python3 axera/eval_board_rec.py \
   --label-file /path/to/dataset/rec/rec_gt_test.txt \
   --data-dir /path/to/dataset/rec \
@@ -216,7 +217,7 @@ python3 axera/eval_board_rec.py \
 # 分片模式评估（README 约定接口）
 python3 axera/eval_board_rec.py \
   --axmodel /path/to/compiled.axmodel \
-  --texts /path/to/icdr_texts.json \
+  --texts /path/to/rec/icdr_parts/texts.json \
   --parts-dir /path/to/icdr_parts \
   --dictionary /path/to/ppocrv6_dict.txt \
   --batch-size 1 --use-space-char
@@ -229,6 +230,9 @@ python3 axera/eval_board_rec.py \
   --dictionary /path/to/ppocrv6_dict.txt \
   --batch-size 1 --use-space-char
 ```
+
+`--make-parts` 会同时生成 `part_*.npz` 和 `<parts-dir>/texts.json`，两者样本顺序一致；不要
+手工重排其中任一文件。分片模式只读取 npz 和 JSON，在板端未安装 OpenCV/Pillow 时也可执行。
 
 v6-rec 使用 `use_space_char: true` 时解码字典的字符列表末尾必须追加空格
 （脚本默认 `--use-space-char`）；不使用空格的 v5-rec 字典传
@@ -294,7 +298,22 @@ hmean。不同数据集的 hmean 不得直接相减。
 normalized edit similarity；检测记录 precision、recall 和 hmean。每个数据集单独记录，不跨数据集
 直接比较或相减。
 
-### 4.1 per-layer dump dtype
+### 4.1 PP-OCRv6 small rec W8A16 验收结果
+
+已验证配置为
+[`ppocrv6_small_rec_w8a16_attn_s16.json`](config/ppocrv6_small_rec_w8a16_attn_s16.json)，
+使用 Pulsar2 7.0、AX650/NPU3、静态输入 `1x3x48x320`。全量结果如下：
+
+| 数据集 | ORT_DISABLE_ALL accuracy / NED | AX650 accuracy / NED | accuracy 差值（AX650 - ORT） |
+| --- | ---: | ---: | ---: |
+| TextOCR/COCO-Text 混合 `rec_val`（149,695） | `0.720191 / 0.814823` | `0.721093 / 0.815407` | `+0.000902` |
+| ICDAR2015 test（2,077） | `0.738565 / 0.887125` | `0.737121 / 0.886952` | `-0.001444` |
+
+50 张 ICDAR2015 仿真对比中，AXModel 与 QuantONNX 的逐帧 argmax agreement 和序列一致率均为
+`1.0`，logits MAE 为 `0.07364`。两套全量板端 accuracy 与 ORT 的差值均不超过 `0.002`，通过
+当前板端对齐判据。
+
+### 4.2 per-layer dump dtype
 
 板端逐层 dump 使用量化整型，读取 dtype 必须与 qparam 一致：
 
