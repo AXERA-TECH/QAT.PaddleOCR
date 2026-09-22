@@ -11,8 +11,9 @@ PT2E 完成浮点训练、QAT、checkpoint 恢复和 QuantONNX 导出，并面�
 
 | 模型 | 验证集 | 主指标 | 浮点指标（det 为官方动态尺寸） | 量化方式 | 配置 | 量化指标（板端优先） |
 | --- | --- | --- | ---: | --- | --- | ---: |
-| PP-OCRv6 small rec | TextOCR/COCO-Text 混合 `rec_val`（149,695）<br>ICDR（2,077） | accuracy | `0.7326`<br>`0.7400` | PTQ | [U8/S8 + Attention S8](configs/qat/ppocrv6_small_rec_u8s8_attn_s8.json)，512 张验证集样本校准 | converted `0.6987`<br>converted `0.6755` |
-|  | TextOCR/COCO-Text 混合 `rec_val`（149,695）<br>ICDR（2,077） | accuracy | `0.7326`<br>`0.7400` | QAT | [U8/S8 + Attention S8](configs/qat/ppocrv6_small_rec_u8s8_attn_s8.json)，已验证配置 | AX650 `0.7070`<br>AX650 `0.7304` |
+| PP-OCRv6 small rec | TextOCR/COCO-Text 混合 `rec_val`（149,695）<br>ICDAR2015 test（2,077） | accuracy | `0.7326`<br>`0.7400` | PTQ | [U8/S8 + Attention S8](configs/qat/ppocrv6_small_rec_u8s8_attn_s8.json)，512 张验证集样本校准 | converted `0.6987`<br>converted `0.6755` |
+|  | TextOCR/COCO-Text 混合 `rec_val`（149,695）<br>ICDAR2015 test（2,077） | accuracy | `0.7326`<br>`0.7400` | QAT | [U8/S8 + Attention S8](configs/qat/ppocrv6_small_rec_u8s8_attn_s8.json)，已验证配置 | AX650 `0.7070`<br>AX650 `0.7304` |
+|  | TextOCR/COCO-Text 混合 `rec_val`（149,695）<br>ICDAR2015 test（2,077） | accuracy | `0.7326`<br>`0.7400` | QAT | [W8A16 + Attention S16](configs/qat/ppocrv6_small_rec_u16s8_attn_s16.json)，[15 epochs AdamW](configs/qat/training/ppocrv6_small_rec_w8a16_attn_s16.yml)，[Pulsar2 NPU3](axera/config/ppocrv6_small_rec_w8a16_attn_s16.json)，全量混合训练 | AX650 `0.7211`<br>AX650 `0.7371` |
 | PP-OCRv6 small det | TextOCR/ICDR 混合 `det_val`（3,624）<br>ICDAR2015 test（500） | hmean | 待按官方动态尺寸重测 | PTQ | [U8/S8](configs/qat/ppocrv6_small_det_u8s8.json)，浮点微调权重、128 张训练图校准 | converted `0.5148`<br>converted `0.6159` |
 | | TextOCR/ICDR 混合 `det_val`（3,624）<br>ICDAR2015 test（500） | hmean | 待按官方动态尺寸重测 | QAT | [U8/S8](configs/qat/ppocrv6_small_det_u8s8.json)，浮点微调权重QAT | AX650 `0.5476`<br>AX650 `0.6922` |
 
@@ -187,14 +188,14 @@ python3 tools/train.py \
   --data-dir "$DATA_ROOT" \
   --val-label-file "$REC_VAL_LABEL" \
   --val-data-dir "$DATA_ROOT" \
-  --output-dir runs/ppocrv6_small_rec_qat \
-  --training-profile configs/qat/training/ppocrv6_small_rec_qat_from_exp22.yml \
-  --qat-config configs/qat/ppocrv6_small_rec_u8s8_attn_s8.json \
-  --optimizer AdamW \
-  --keep-bn \
+  --output-dir runs/ppocrv6_small_rec_w8a16_attn_s16_qat \
+  --training-profile configs/qat/training/ppocrv6_small_rec_w8a16_attn_s16.yml \
+  --qat-config configs/qat/ppocrv6_small_rec_u16s8_attn_s16.json \
   --device cuda
 ```
 
+当前推荐识别配置使用权重 S8、普通激活 U16 和 Attention/MatMul 激活 S16，并设置
+`reparameterize=true`、`keep_bn=false`、AdamW、batch 64、学习率 `1e-5` 和 15 epoch 上限。
 QAT 优化器建议 AdamW 或 SGD。识别 baseline 使用 FP32、关闭 AMP 和随机增强；检测 baseline 默认只启用
 640x640 随机裁剪。所有 QAT observer 全程开启；验证时 trainer
 临时关闭 observer 并在结束后恢复。除独立实验外，不设置 `--observer-freeze-epoch`。
@@ -215,7 +216,8 @@ epoch_NNNN_step_*.pt      save_every_steps 中间 checkpoint
 step_validation.jsonl     step 全量验证记录
 ```
 
-恢复训练时，在上述命令中增加 `--resume runs/ppocrv6_small_rec_qat/last.pt`。恢复合同要求模型 YAML、
+恢复训练时，在上述命令中增加
+`--resume runs/ppocrv6_small_rec_w8a16_attn_s16_qat/last.pt`。恢复合同要求模型 YAML、
 QAT JSON、Torch 版本、输入 shape、重参数化、keep-BN、optimizer、dynamic shape 和 batch policy 保持
 一致；`--epochs` 表示恢复后的总 epoch 上限。
 
@@ -225,8 +227,8 @@ QAT JSON、Torch 版本、输入 shape、重参数化、keep-BN、optimizer、dy
 
 ```bash
 python3 tools/export_ocr_onnx.py checkpoint \
-  --checkpoint runs/ppocrv6_small_rec_qat/best.pt \
-  --output exports/quantonnx/ppocrv6_small_rec_best.onnx \
+  --checkpoint runs/ppocrv6_small_rec_w8a16_attn_s16_qat/best.pt \
+  --output exports/quantonnx/ppocrv6_small_rec_w8a16_attn_s16.onnx \
   --batch-size 1 \
   --ort-optimizer-check
 ```
@@ -235,8 +237,8 @@ python3 tools/export_ocr_onnx.py checkpoint \
 
 ```bash
 python3 tools/export_ocr_onnx.py checkpoint \
-  --checkpoint runs/ppocrv6_small_rec_qat/best.pt \
-  --output exports/quantonnx/ppocrv6_small_rec_best_recalibrated.onnx \
+  --checkpoint runs/ppocrv6_small_rec_w8a16_attn_s16_qat/best.pt \
+  --output exports/quantonnx/ppocrv6_small_rec_w8a16_attn_s16_recalibrated.onnx \
   --batch-size 1 \
   --recalibrate \
   --calibration-label-file "$REC_TRAIN_LABEL" \
@@ -255,7 +257,7 @@ GTC 辅助分支。
 
 ```bash
 python3 tools/verify_qat_onnx.py \
-  --model exports/quantonnx/ppocrv6_small_rec_best.onnx \
+  --model exports/quantonnx/ppocrv6_small_rec_w8a16_attn_s16.onnx \
   --check-value
 ```
 
@@ -265,7 +267,7 @@ python3 tools/verify_qat_onnx.py \
 python3 tools/evaluate_onnx.py \
   --task rec \
   --model-config configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml \
-  --onnx exports/quantonnx/ppocrv6_small_rec_best.onnx \
+  --onnx exports/quantonnx/ppocrv6_small_rec_w8a16_attn_s16.onnx \
   --label-file "$REC_VAL_LABEL" \
   --data-dir "$DATA_ROOT" \
   --batch-size 1 \
@@ -274,7 +276,7 @@ python3 tools/evaluate_onnx.py \
 python3 tools/evaluate_onnx.py \
   --task rec \
   --model-config configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml \
-  --onnx exports/quantonnx/ppocrv6_small_rec_best.onnx \
+  --onnx exports/quantonnx/ppocrv6_small_rec_w8a16_attn_s16.onnx \
   --label-file "$REC_VAL_LABEL" \
   --data-dir "$DATA_ROOT" \
   --batch-size 1 \

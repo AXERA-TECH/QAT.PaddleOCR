@@ -1,6 +1,6 @@
 {
-  "input": "onnx/ppocrv6_small_rec_exp22a_final_qat_qdq.onnx",
-  "output_dir": "./output/exp22a_final_rec",
+  "input": "onnx/ppocrv6_small_rec_u8s8_attn_s8_qdq.onnx",
+  "output_dir": "./output/ppocrv6_small_rec_u8s8_attn_s8",
   "model_type": "QuantONNX",
   "target_hardware": "AX650",
   "npu_mode": "NPU3",

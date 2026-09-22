@@ -1,0 +1,24 @@
+name: ppocrv6-small-rec-w8a16-attn-s16
+task: rec
+model_name: PP-OCRv6_small_rec
+qat: true
+qat_config: ../ppocrv6_small_rec_u16s8_attn_s16.json
+training:
+  epochs: 15
+  batch_size: 64
+  workers: 8
+  optimizer: AdamW
+  learning_rate: 0.00001
+  image_shape: [3, 48, 320]
+  augmentation: none
+  multi_scale_training: false
+  amp: false
+  reparameterize: true
+  keep_bn: false
+  rec_graph: pretrained_train
+  warmup_epochs: 1
+  lr_final_factor: 0.1
+  observer_freeze_epoch: null
+  save_every: 1
+  save_every_steps: 5000
+  seed: 20260826
